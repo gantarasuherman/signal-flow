@@ -1,0 +1,23 @@
+# Satu pintu masuk untuk dashboard:
+#   /api/*  → backend (prefix /api dibuang)
+#   /ws     → backend (WebSocket)
+#   lainnya → frontend Next.js
+{
+	admin off
+}
+
+:80 {
+	encode gzip
+
+	handle_path /api/* {
+		reverse_proxy backend:8000
+	}
+
+	handle /ws {
+		reverse_proxy backend:8000
+	}
+
+	handle {
+		reverse_proxy frontend:3000
+	}
+}

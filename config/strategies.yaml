@@ -1,0 +1,108 @@
+# Strategi yang dipakai worker dan parameternya.
+# Setelah mengubah file ini: docker compose restart backend worker
+#
+# Strategi tersedia: trend_pullback, session_breakout, donchian_breakout, disabled
+# (tambah strategi baru di backend/app/strategies/)
+
+# Strategi bawaan untuk instrumen yang tidak diatur di bagian `instruments`
+active: trend_pullback
+
+# Strategi per instrumen — dipilih lewat `python -m app.cli research` (29 Okt 2026, data
+# Okt 2025–Okt 2026): kandidat dipilih HANYA dari in-sample, lalu diuji di out-of-sample.
+# Instrumen tanpa strategi yang lolos uji = `disabled` (selalu WAIT).
+instruments:
+  EURUSD:   # breakout sesi Asia + tren H4 — IS PF 1.19 (43 trade), OOS PF 1.36 (26 trade)
+    strategy: session_breakout
+    params: {trend_filter: h4}
+  USDJPY:   # breakout sesi Asia — IS PF 1.10 (85 trade), OOS PF 1.26 (46 trade)
+    strategy: session_breakout
+    params: {trend_filter: none}
+  GBPUSD:   # kandidat terbaik (donchian 40+H1) rugi di in-sample (PF 0.83) → belum lolos
+    strategy: disabled
+  XAUUSD:   # kandidat terbaik (pullback tanpa CLOSE dini) OOS PF 0.90 → belum lolos
+    strategy: disabled
+
+strategies:
+  trend_pullback:
+    # --- Tren H1/H4 ---
+    min_adx: 20               # ADX minimal (H1 atau H4) agar tren dianggap cukup kuat
+    strong_adx: 25            # ADX yang menambah tingkat keyakinan
+    # --- Pemicu M15 ---
+    pullback_lookback: 5      # cek sentuhan EMA20 dalam N candle terakhir
+    pullback_atr: 0.25        # toleransi jarak ke EMA20 (× ATR)
+    trigger_lookback: 3       # RSI/MACD cross dihitung dalam N candle terakhir
+    rsi_buy_level: 40         # BUY: RSI naik melewati level ini (keluar zona jenuh jual saat tren naik)
+    rsi_sell_level: 60        # SELL: RSI turun melewati level ini
+    rsi_overbought: 70        # jangan BUY bila RSI sudah di atas ini
+    rsi_oversold: 30          # jangan SELL bila RSI sudah di bawah ini
+    min_triggers: 2           # minimal pemicu (pullback wajib + RSI/MACD)
+    # --- SL / TP ---
+    sl_atr: 1.5
+    tp_atr: 3.0
+    min_rr: 2.0               # R:R minimal SETELAH spread; TP dilebarkan bila perlu
+    # --- CLOSE dini ---
+    min_bars_before_close: 2  # jangan tutup karena momentum sebelum N candle berlalu
+
+  session_breakout:
+    range_start_utc: 0        # rentang sesi Asia 00:00–07:00 UTC (07:00–14:00 WIB)
+    range_end_utc: 7
+    trade_until_utc: 12       # entry hanya sampai 12:00 UTC (19:00 WIB)
+    buffer_atr: 0.1           # harga harus ditutup 0.1×ATR di luar rentang
+    min_range_atr: 1.0        # abaikan rentang terlalu sempit / lebar
+    max_range_atr: 8.0
+    sl_mode: mid_range        # SL di tengah rentang (dibatasi 0.75–3 ×ATR)
+    rr: 2.0                   # R:R bersih setelah spread
+    trend_filter: h4          # h4 = hanya searah tren H4; none = tanpa filter
+
+  donchian_breakout:
+    lookback: 20
+    min_adx: 20
+    sl_atr: 2.0
+    rr: 2.0
+    require_h1: false
+
+  setup_trend:
+    sl_atr: 1.5
+    rr: 2.0
+
+  # Sinyal AI Groq (eksperimen, berdampingan dengan strategi di atas).
+  # AI memilih arah & waktu; batas di bawah ditegakkan kode. Nonaktifkan: AI_SIGNALS_ENABLED=false
+  ai_groq:
+    min_confidence: 0.6       # keyakinan AI di bawah ini → WAIT
+    sl_atr_min: 1.0           # SL yang boleh dipilih AI: 1–3 × ATR M15
+    sl_atr_max: 3.0
+    min_rr: 2.0               # R:R minimal setelah spread
+    m15_candles: 12           # jumlah candle M15 mentah yang dikirim ke AI
+    trend_guard: true         # tolak usulan AI yang melawan tren H1/H4 (BUY saat turun, SELL saat naik)
+    prefilter: true           # AI hanya dipanggil bila kode melihat calon setup (pullback/breakout searah tren)
+    votes: 3                  # AI ditanya 3x; BUY/SELL hanya bila mayoritas sepakat
+    vote_gap_seconds: 3
+
+# Instrumen yang mendapat sinyal AI. XAUUSD dikeluarkan (29 Okt 2026): ai-eval 30 hari
+# menunjukkan AI memperburuk hasil (PF 0.27 vs 0.60 tanpa AI). Hapus baris ini = semua.
+ai_instruments: [EURUSD, GBPUSD, USDJPY]
+
+# CLOSE "kunci untung": posisi sudah untung >= min_profit_r × jarak SL (setelah spread) lalu
+# muncul pola candlestick pembalikan berlawanan (kekuatan >= min_strength: 2 sedang, 3 kuat)
+# → tampilkan CLOSE agar keluar dekat titik untung terbesar, tanpa menunggu TP.
+# DIMATIKAN (29 Okt 2026): A/B 2 tahun menunjukkan untung total turun (EURUSD OOS +10,8R →
+# +6,7R; USDJPY IS +21,7R → +15,6R). Win rate naik sedikit, tapi trade pemenang terpotong.
+profit_close:
+  enabled: false
+  min_profit_r: 1.0
+  min_strength: 2
+
+# Batas umur sinyal aktif (dalam candle M15). 32 = 8 jam.
+max_hold_candles: 32
+
+# Sinyal hanya disarankan untuk dimasuki dalam N menit setelah muncul.
+entry_valid_minutes: 45
+
+filters:
+  max_atr_ratio: 2.5          # ATR > 2.5× normal = volatilitas ekstrem
+  min_atr_ratio: 0.3          # ATR < 0.3× normal = pasar terlalu sepi
+  max_candle_atr: 3.0         # candle terakhir > 3× ATR = lonjakan
+  news_before_minutes: 30
+  news_after_minutes: 30
+  news_min_impact: high       # low | medium | high
+  weekend_close_buffer_minutes: 45

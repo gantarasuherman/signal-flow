@@ -1,0 +1,110 @@
+name: signalflow
+
+x-backend-common: &backend-common
+  build: ./backend
+  image: signalflow-backend:latest
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    REDIS_URL: redis://redis:6379/0
+    INSTRUMENTS_FILE: /app/config/instruments.yaml
+    TZ: ${TIMEZONE:-Asia/Jakarta}
+  volumes:
+    - ./config:/app/config:ro
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      TZ: ${TIMEZONE:-Asia/Jakarta}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  backend:
+    <<: *backend-common
+    # Migrasi database hanya dijalankan oleh service backend
+    command: ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers"]
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  worker:
+    <<: *backend-common
+    command: ["python", "-m", "app.worker.main"]
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  # Jembatan harga real-time Twelve Data (WebSocket) → Redis, agar grafik bergerak tiap detik
+  streamer:
+    image: node:22-alpine
+    command: ["node", "/app/bridge.mjs"]
+    environment:
+      TWELVEDATA_API_KEY: ${TWELVEDATA_API_KEY:-}
+      REDIS_HOST: redis
+    volumes:
+      - ./streamer:/app:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    environment:
+      TZ: ${TIMEZONE:-Asia/Jakarta}
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # Pintu masuk tunggal: dashboard, /api, dan /ws di satu alamat (http://<ip>:APP_PORT)
+  proxy:
+    image: caddy:2.10-alpine
+    volumes:
+      - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+    ports:
+      - "${APP_PORT:-8080}:80"
+    depends_on:
+      - frontend
+      - backend
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:

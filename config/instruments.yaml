@@ -1,0 +1,67 @@
+# Daftar instrumen yang dianalisis. Tambah instrumen baru cukup dengan
+# menambah entri di bawah lalu restart service backend & worker:
+#   docker compose restart backend worker
+#
+# Keterangan field:
+#   symbol               : kode internal (tanpa suffix broker)
+#   provider_symbol      : kode di data provider (Twelve Data memakai format "XAU/USD")
+#   pip_size             : ukuran 1 pip dalam harga
+#   digits               : jumlah desimal harga
+#   contract_size        : ukuran 1 lot standar (forex 100000, emas 100 oz), untuk saran lot
+#   typical_spread_pips  : perkiraan spread broker (default; bisa diubah dari dashboard)
+#   slippage_pips        : perkiraan slippage, dipakai backtest
+#   signal_validity_pips : jika harga sudah bergerak lebih jauh dari ini dari entry,
+#                          sinyal ditandai "kedaluwarsa, jangan masuk"
+
+instruments:
+  - symbol: XAUUSD
+    provider_symbol: XAU/USD
+    name: Emas / Dolar AS
+    asset_class: metal
+    pip_size: 0.1
+    digits: 2
+    contract_size: 100
+    quote_currency: USD
+    typical_spread_pips: 2.5
+    slippage_pips: 1.0
+    signal_validity_pips: 15
+    enabled: true
+
+  - symbol: EURUSD
+    provider_symbol: EUR/USD
+    name: Euro / Dolar AS
+    asset_class: forex
+    pip_size: 0.0001
+    digits: 5
+    contract_size: 100000
+    quote_currency: USD
+    typical_spread_pips: 0.8
+    slippage_pips: 0.2
+    signal_validity_pips: 5
+    enabled: true
+
+  - symbol: GBPUSD
+    provider_symbol: GBP/USD
+    name: Pound / Dolar AS
+    asset_class: forex
+    pip_size: 0.0001
+    digits: 5
+    contract_size: 100000
+    quote_currency: USD
+    typical_spread_pips: 1.0
+    slippage_pips: 0.3
+    signal_validity_pips: 6
+    enabled: true
+
+  - symbol: USDJPY
+    provider_symbol: USD/JPY
+    name: Dolar AS / Yen Jepang
+    asset_class: forex
+    pip_size: 0.01
+    digits: 3
+    contract_size: 100000
+    quote_currency: JPY
+    typical_spread_pips: 1.0
+    slippage_pips: 0.2
+    signal_validity_pips: 5
+    enabled: true

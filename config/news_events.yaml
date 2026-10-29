@@ -1,0 +1,11 @@
+# Kalender berita berdampak besar (diisi manual; file dibaca ulang otomatis tanpa restart).
+# Sinyal entry baru diblokir 30 menit sebelum s/d 30 menit sesudah rilis untuk mata uang
+# terkait (XAUUSD → XAU & USD, EURUSD → EUR & USD, dst).
+#
+# Waktu WAJIB menyertakan zona waktu. Contoh:
+#   - time: "2026-11-06T20:30:00+07:00"   # NFP, 08:30 New York = 20:30 WIB
+#     currency: USD
+#     impact: high
+#     title: Non-Farm Payrolls
+
+events: []

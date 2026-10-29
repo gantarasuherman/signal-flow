@@ -1,0 +1,101 @@
+@import "tailwindcss";
+
+/* Token warna semantik → kelas Tailwind (bg-bg, text-fg, text-buy, bg-ai/10, ...).
+   Nilainya diambil dari variabel CSS sehingga berganti mengikuti tema. */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-panel-2: var(--panel-2);
+  --color-line: var(--line);
+  --color-muted: var(--muted);
+  --color-fg: var(--fg);
+  --color-fg-soft: var(--fg-soft);
+  --color-buy: var(--buy);
+  --color-sell: var(--sell);
+  --color-close: var(--close);
+  --color-wait: var(--wait);
+  --color-warn: var(--warn);
+  --color-ok: var(--ok);
+  --color-err: var(--err);
+  --color-ai: var(--ai);
+  --color-brand: var(--brand);
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+}
+
+/* Tema gelap (bawaan) — ala aplikasi broker iOS */
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0b0e11;
+  --panel: #141920;
+  --panel-2: #1c232c;
+  --line: #262f3a;
+  --muted: #8b95a1;
+  --fg: #e8edf2;
+  --fg-soft: #c3ccd6;
+  --buy: #16c784;
+  --sell: #ea3943;
+  --close: #f5a524;
+  --wait: #6b7785;
+  --warn: #fcd34d;
+  --ok: #6ee7b7;
+  --err: #fca5a5;
+  --ai: #c4b5fd;
+  --brand: #38bdf8;
+  --shadow: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 8px 24px rgb(0 0 0 / 0.25);
+  --chart-grid: #151a21;
+}
+
+/* Tema terang */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f3f5f8;
+  --panel: #ffffff;
+  --panel-2: #eef1f5;
+  --line: #dde3ea;
+  --muted: #64707d;
+  --fg: #0f172a;
+  --fg-soft: #334155;
+  --buy: #059669;
+  --sell: #dc2626;
+  --close: #d97706;
+  --wait: #94a3b8;
+  --warn: #92400e;
+  --ok: #065f46;
+  --err: #b91c1c;
+  --ai: #6d28d9;
+  --brand: #0284c7;
+  --shadow: 0 1px 2px rgb(15 23 42 / 0.06), 0 6px 20px rgb(15 23 42 / 0.06);
+  --chart-grid: #eef1f5;
+}
+
+html,
+body {
+  background: var(--bg);
+}
+
+body {
+  @apply text-fg antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+  transition: background-color 0.2s ease;
+}
+
+/* Permukaan kartu: latar panel + garis + bayangan halus sesuai tema */
+@utility surface {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
