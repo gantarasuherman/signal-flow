@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import ai, backtest, health, market, patterns, signals, ws
+from app.api import ai, backtest, chart, health, market, patterns, signals, ws
 from app.api import settings as settings_api
 from app.core.config import get_settings
 from app.core.instruments import get_instruments
@@ -64,4 +64,5 @@ app.include_router(settings_api.router)
 app.include_router(backtest.router)
 app.include_router(ai.router)
 app.include_router(patterns.router)
+app.include_router(chart.router)
 app.include_router(ws.router)

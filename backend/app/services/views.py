@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.analysis.config import get_analysis_config
+from app.analysis.lifecycle import TrailingStopConfig, trailing_stops
 from app.analysis.risk import price_to_pips, suggest_lot
 from app.core.instruments import Instrument
 from app.core.market_hours import is_market_open, next_market_open
@@ -20,7 +22,8 @@ from app.repositories import signals as signals_repo
 from app.services.calibration import adjust_price
 from app.services.live_candle import latest_cached_price
 from app.services.risk_prefs import RiskPrefs
-from app.services.signal_engine import get_latest_analysis
+from app.services.signal_engine import candles_to_frame, get_latest_analysis
+from app.strategies import Action
 
 # Harga live dianggap segar selama ini; setelahnya dipakai penutupan candle M15 terakhir
 LIVE_PRICE_MAX_AGE = timedelta(minutes=2)
@@ -158,6 +161,7 @@ class SignalView(BaseModel):
     closes_action: str | None = Field(description="Untuk CLOSE: aksi yang ditutup (BUY/SELL)")
     parent_id: int | None
     strategy: str
+    timeframe: Timeframe = Field(description="Timeframe entry sinyal")
     signal_time: datetime = Field(description="Waktu sinyal = waktu tutup candle pemicu")
     created_at: datetime
 
@@ -165,6 +169,12 @@ class SignalView(BaseModel):
     entry: float | None = Field(description="Sudah disesuaikan ke harga broker")
     stop_loss: float | None
     take_profit: float | None
+    trailing_stop: float | None = Field(
+        default=None, description="SL terkini setelah trailing stop bergeser (disesuaikan broker)"
+    )
+    take_profit_active: bool = Field(
+        default=True, description="false = TP dilepas; posisi ditutup trailing stop / sinyal"
+    )
     sl_pips: float | None
     tp_pips: float | None
     risk_reward: float | None
@@ -225,6 +235,8 @@ def build_signal_view(
     price: PriceInfo | None,
     prefs: RiskPrefs,
     closes_action: str | None = None,
+    trailing_stop: float | None = None,
+    take_profit_active: bool = True,
 ) -> SignalView:
     digits = instrument.digits
 
@@ -271,12 +283,15 @@ def build_signal_view(
         closes_action=closes_action,
         parent_id=signal.parent_id,
         strategy=signal.strategy,
-        signal_time=signal.candle_time + Timeframe.M15.delta,
+        timeframe=Timeframe(signal.timeframe),
+        signal_time=signal.candle_time + Timeframe(signal.timeframe).delta,
         created_at=signal.created_at,
         price_offset=offset,
         entry=adj(signal.entry),
         stop_loss=adj(signal.stop_loss),
         take_profit=adj(signal.take_profit),
+        trailing_stop=adj(trailing_stop),
+        take_profit_active=take_profit_active,
         sl_pips=pips(signal.entry, signal.stop_loss),
         tp_pips=pips(signal.take_profit, signal.entry),
         risk_reward=signal.risk_reward,
@@ -322,6 +337,10 @@ async def load_signal_view(
         closes_action = parent.action if parent else None
     if price is None and signal.status == "ACTIVE":
         price = await current_price(session, redis, signal.symbol, now)
+    trail_cfg = get_analysis_config().trailing_stop
+    stop = None
+    if trail_cfg.enabled and signal.status == "ACTIVE" and signal.action in ("BUY", "SELL"):
+        stop = await _current_trailing_stop(session, signal, instrument, setting, trail_cfg)
     return build_signal_view(
         signal,
         instrument,
@@ -330,7 +349,35 @@ async def load_signal_view(
         price=price,
         prefs=prefs,
         closes_action=closes_action,
+        trailing_stop=stop,
+        take_profit_active=not trail_cfg.enabled or trail_cfg.take_profit,
     )
+
+
+async def _current_trailing_stop(
+    session: AsyncSession,
+    signal: Signal,
+    instrument: Instrument,
+    setting: InstrumentSetting | None,
+    cfg: TrailingStopConfig,
+) -> float | None:
+    """SL terkini dari candle tutup sejak sinyal (sama persis dengan pengecekan exit)."""
+    assert signal.entry is not None and signal.stop_loss is not None
+    tf = Timeframe(signal.timeframe)
+    rows = await candles_repo.get_candles(
+        session, signal.symbol, tf, start=signal.candle_time + tf.delta, limit=5000
+    )
+    # Spread sama dengan yang dipakai mesin sinyal saat mengecek exit
+    spread_pips = (
+        setting.spread_pips
+        if setting and setting.spread_pips is not None
+        else instrument.typical_spread_pips
+    )
+    spread = spread_pips * instrument.pip_size
+    stop = trailing_stops(
+        Action(signal.action), signal.stop_loss, signal.entry, candles_to_frame(rows), spread, cfg
+    )[-1]
+    return instrument.round_price(stop) if stop != signal.stop_loss else None
 
 
 # ---------- Kartu instrumen (layar utama) ----------
@@ -338,6 +385,7 @@ async def load_signal_view(
 
 class AnalysisOut(BaseModel):
     analyzed_at: datetime
+    timeframe: Timeframe = Field(default=Timeframe.M15, description="Timeframe entry analisis")
     candle_time: datetime | None
     reasons: list[str]
     filters: list[str]
@@ -392,6 +440,7 @@ async def build_card(
     analysis = (
         AnalysisOut(
             analyzed_at=snap["analyzed_at"],
+            timeframe=snap.get("timeframe", Timeframe.M15),
             candle_time=snap.get("candle_time"),
             reasons=snap.get("reasons", []),
             filters=snap.get("filters", []),

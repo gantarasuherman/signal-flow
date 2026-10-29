@@ -151,6 +151,7 @@ async def cmd_scan(args: argparse.Namespace) -> None:
                 filters=cfg.filters,
                 max_hold_candles=cfg.max_hold_candles,
                 profit_close=cfg.profit_close,
+                trailing=cfg.trailing_stop,
                 start=start,
             )
             closed = [t for t in trades if t.result_pips is not None]

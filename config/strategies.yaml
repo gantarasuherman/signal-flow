@@ -92,10 +92,22 @@ profit_close:
   min_profit_r: 1.0
   min_strength: 2
 
-# Batas umur sinyal aktif (dalam candle M15). 32 = 8 jam.
+# Trailing stop (BUY & SELL): setelah untung >= activate_r (R = jarak SL awal), SL mengikuti
+# harga terbaik sejak entry sejauh distance_r. take_profit: false = TP dilepas agar untung
+# dibiarkan berjalan dan posisi ditutup trailing stop. Dipilih dari in-sample (Okt 2025–Jul
+# 2026) session_breakout EURUSD/USDJPY: out-of-sample +10.2R → +21.7R, DD 6.9R → 5.0R (73 trade).
+trailing_stop:
+  enabled: true
+  activate_r: 1.0
+  distance_r: 0.5
+  take_profit: false
+
+# Batas umur sinyal aktif (dalam candle timeframe entry). M15: 32 = 8 jam;
+# analisis AI M1 = 32 menit, H4 = ±5 hari.
 max_hold_candles: 32
 
-# Sinyal hanya disarankan untuk dimasuki dalam N menit setelah muncul.
+# Sinyal hanya disarankan untuk dimasuki dalam N menit setelah muncul (untuk M15;
+# analisis AI timeframe lain diskalakan: M1 = 3 menit, H4 = 12 jam).
 entry_valid_minutes: 45
 
 filters:

@@ -5,9 +5,22 @@ import pandas as pd
 import pytest
 
 from app.analysis.indicators import compute_indicators
-from app.api.patterns import TimeframePatterns, conclude, pattern_marks
+from app.api.patterns import (
+    PatternOut,
+    TimeframePatterns,
+    conclude,
+    pattern_marks,
+    pattern_odds,
+    pattern_out,
+)
 from app.core.instruments import Instrument
 from app.core.timeframes import Timeframe
+from app.services.pattern_stats import (
+    HORIZON,
+    PatternStat,
+    compute_pattern_stats,
+    wilson_lower,
+)
 from app.strategies import Action, StrategyContext, create_strategy
 from app.strategies.patterns import detect_patterns, read_patterns
 
@@ -67,6 +80,65 @@ def test_markers_and_conclusion() -> None:
     assert conclude([]).bias == "NONE"
 
 
+def pattern_with_odds(name: str, bias: int, probability: float, samples: int) -> PatternOut:
+    return PatternOut(
+        name=name,
+        bias=bias,
+        meaning="",
+        strength=2,
+        strength_text="sedang",
+        note="",
+        probability=probability,
+        samples=samples,
+    )
+
+
+def test_conclusion_uses_historical_probability() -> None:
+    def frames(*patterns: PatternOut) -> list[TimeframePatterns]:
+        return [
+            TimeframePatterns(
+                timeframe=Timeframe.H1, trend="naik", candle_time=0, patterns=list(patterns)
+            )
+        ]
+
+    # Pola naik 64% (n=200) → kemungkinan BUY
+    buy = conclude(frames(pattern_with_odds("Hammer", 1, 0.64, 200)))
+    assert buy.bias == "BUY" and buy.probability == 0.64 and buy.samples == 200
+    assert buy.direction == "naik"
+    # Pola turun yang historisnya hanya 40% benar → justru condong naik 60%
+    assert conclude(frames(pattern_with_odds("Shooting Star", -1, 0.4, 300))).bias == "BUY"
+    # 55% dari 40 kejadian: belum meyakinkan
+    weak = conclude(frames(pattern_with_odds("Hammer", 1, 0.55, 40)))
+    assert weak.bias == "MIXED" and weak.probability == 0.55 and weak.direction == "naik"
+    # 54% dari 900 kejadian: lolos uji statistik tetapi tepinya terlalu tipis
+    assert conclude(frames(pattern_with_odds("Hammer", 1, 0.54, 900))).bias == "MIXED"
+    # Dua pola berlawanan digabung
+    sell = conclude(
+        frames(
+            pattern_with_odds("Hammer", 1, 0.5, 100),
+            pattern_with_odds("Evening Star", -1, 0.7, 300),
+        )
+    )
+    assert sell.bias == "SELL" and sell.samples == 400 and sell.direction == "turun"
+
+
+def test_wilson_lower_bound() -> None:
+    assert wilson_lower(0, 0) == 0.0
+    assert 0.5 < wilson_lower(64, 100) < 0.64
+    assert wilson_lower(6, 10) < 0.5  # 60% dari 10 belum meyakinkan
+
+
+def test_pattern_stats_count_forward_moves_without_lookahead() -> None:
+    df = downtrend_then_hammer()
+    stats = compute_pattern_stats(df)
+    # Hammer di candle terakhir tidak punya HORIZON candle sesudahnya → tidak dihitung
+    assert all(s.samples >= s.hits >= 0 for s in stats.values())
+    extended = downtrend_then_hammer(300 + HORIZON)
+    assert sum(s.samples for s in compute_pattern_stats(extended.iloc[:-HORIZON]).values()) == sum(
+        s.samples for s in stats.values()
+    )
+
+
 def ctx(inst: Instrument, h1: pd.DataFrame) -> StrategyContext:
     m15 = downtrend_then_hammer()
     return StrategyContext(
@@ -115,3 +187,26 @@ def test_profit_lock_closes_winning_sell_on_hammer(xauusd: Instrument) -> None:
     tiny = StrategyContext(c.instrument, c.now, m15, c.h1, c.h4, 0.25, small)
     assert step(hold, tiny, [], 999, ProfitCloseConfig()).exit is None
     assert step(hold, with_pos, [], 999, ProfitCloseConfig(enabled=False)).exit is None
+
+
+def test_pattern_odds_direction_and_reliability() -> None:
+    hammer = pattern_odds("XAUUSD", Timeframe.H4, "Hammer", PatternStat(64, 40))
+    assert hammer and hammer.direction == "naik" and hammer.follows_pattern
+    assert hammer.chance == 0.625 and hammer.reliable
+    # Pola turun yang sering gagal (40% benar) → potensi NAIK 60%
+    failing = pattern_odds("USDJPY", Timeframe.H1, "Hanging Man", PatternStat(278, 117))
+    assert failing and failing.direction == "naik" and not failing.follows_pattern
+    assert failing.chance == round(161 / 278, 3) and failing.reliable
+    # Sampel kecil / pola netral tidak ditampilkan; 54% belum meyakinkan
+    assert pattern_odds("X", Timeframe.H1, "Hammer", PatternStat(10, 8)) is None
+    assert pattern_odds("X", Timeframe.H1, "Spinning Top", PatternStat(500, 300)) is None
+    weak = pattern_odds("X", Timeframe.H1, "Hammer", PatternStat(900, 486))
+    assert weak and not weak.reliable
+
+
+def test_pattern_out_reliability_matches_conclusion_rule() -> None:
+    (read,) = read_patterns(downtrend_then_hammer(), trend=1)
+    assert pattern_out(read, PatternStat(64, 40)).reliable  # 62% dari 64
+    assert not pattern_out(read, PatternStat(49, 27)).reliable  # 55% dari 49: belum lolos uji
+    assert pattern_out(read, PatternStat(300, 120)).reliable  # 40% benar → sering gagal, meyakinkan
+    assert not pattern_out(read, PatternStat(10, 9)).reliable  # sampel terlalu sedikit

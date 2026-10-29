@@ -4,10 +4,11 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { endpoints } from "@/lib/api";
 import { useInstrumentCard } from "@/lib/hooks";
-import type { SignalView } from "@/lib/types";
+import type { SignalView, Timeframe } from "@/lib/types";
 import { Disclaimer } from "./Disclaimer";
 import { SignalCard } from "./SignalCard";
 import { AiPanel } from "./AiPanel";
+import { ChartAnalysis } from "./ChartAnalysis";
 import { PatternPanel } from "./PatternPanel";
 import { SignalStrip } from "./SignalStrip";
 import { ValidationNotice } from "./ValidationNotice";
@@ -23,6 +24,7 @@ export function ChartMonitor({ symbol }: { symbol: string }) {
   const { card, aiCard, setAiCard, error, reloadKey } = useInstrumentCard(symbol);
   const [livePrice, setLivePrice] = useState<number | null>(null);
   const [history, setHistory] = useState<SignalView[]>([]);
+  const [chartTf, setChartTf] = useState<Timeframe | null>(null);
 
   useEffect(() => setLivePrice(null), [symbol]);
   useEffect(() => {
@@ -52,7 +54,9 @@ export function ChartMonitor({ symbol }: { symbol: string }) {
 
   return (
     <div className="space-y-3">
-      <SignalStrip card={card} livePrice={livePrice} />
+      <SignalStrip card={card} livePrice={livePrice} hero>
+        <ChartAnalysis symbol={symbol} timeframe={chartTf} reloadKey={reloadKey} />
+      </SignalStrip>
       <ValidationNotice symbol={symbol} />
       <AiPanel symbol={symbol} card={aiCard} livePrice={livePrice} onResult={setAiCard} />
       <PriceChart
@@ -62,8 +66,9 @@ export function ChartMonitor({ symbol }: { symbol: string }) {
         history={history}
         reloadKey={reloadKey}
         onLivePrice={setLivePrice}
+        onTimeframe={setChartTf}
       />
-      <PatternPanel symbol={symbol} reloadKey={reloadKey} />
+      <PatternPanel symbol={symbol} reloadKey={reloadKey} activeTf={chartTf} />
       <SignalCard card={card} livePrice={livePrice} />
       {aiCard?.signal && (aiCard.signal.status === "ACTIVE" || aiCard.signal.status === "EXPIRED" || aiCard.is_new_event) && (
         <SignalCard card={aiCard} livePrice={livePrice} />

@@ -15,6 +15,7 @@ def buy_signal(**overrides: object) -> Signal:
     values: dict[str, object] = {
         "id": 7,
         "symbol": "XAUUSD",
+        "timeframe": "M15",
         "strategy": "trend_pullback",
         "action": "BUY",
         "candle_time": CANDLE,
@@ -107,3 +108,18 @@ def test_view_for_closed_and_close_event(xauusd: Instrument) -> None:
     assert view.action == "CLOSE" and view.closes_action == "BUY"
     assert view.status_label == "ditutup"
     assert view.suggested_lot is None
+
+
+def test_view_shows_trailing_stop_adjusted_to_broker(xauusd: Instrument) -> None:
+    view = build_signal_view(
+        buy_signal(),
+        xauusd,
+        offset=1.25,
+        now=NOW,
+        price=price(4003.0),
+        prefs=RiskPrefs(),
+        trailing_stop=4002.0,
+        take_profit_active=False,
+    )
+    assert view.trailing_stop == 4003.25 and view.stop_loss == 3998.75
+    assert not view.take_profit_active

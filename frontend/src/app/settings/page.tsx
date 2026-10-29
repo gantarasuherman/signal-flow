@@ -6,7 +6,7 @@ import { Disclaimer } from "@/components/Disclaimer";
 import { endpoints } from "@/lib/api";
 import { dateTimeWIB, formatPrice, formatUSD, relativeTime } from "@/lib/format";
 import { type ThemeChoice, useTheme } from "@/lib/theme";
-import type { Health, InstrumentOut, RiskPrefs } from "@/lib/types";
+import type { DataProviderId, DataProviderState, Health, InstrumentOut, RiskPrefs } from "@/lib/types";
 
 const input =
   "tabular w-full rounded-lg border border-line bg-bg px-3 py-2.5 text-lg outline-none focus:border-fg-soft";
@@ -265,6 +265,90 @@ const THEME_OPTIONS: { value: ThemeChoice; label: string; hint: string }[] = [
   { value: "system", label: "Ikuti sistem", hint: "mengikuti pengaturan HP" },
 ];
 
+const PROVIDER_HINT: Record<DataProviderId, string> = {
+  twelvedata: "XAUUSD & EURUSD real-time per detik (streaming)",
+  tiingo: "Kuota lebih longgar; semua pair termasuk emas",
+};
+
+function DataSource() {
+  const [state, setState] = useState<DataProviderState | null>(null);
+  const [saving, setSaving] = useState<DataProviderId | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    endpoints
+      .dataProvider()
+      .then(setState)
+      .catch((e: Error) => setError(e.message));
+  }, []);
+
+  const choose = async (id: DataProviderId) => {
+    setSaving(id);
+    setError(null);
+    try {
+      setState(await endpoints.setDataProvider(id));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  return (
+    <Section title="Sumber data">
+      {!state && !error && <div className="h-20 animate-pulse rounded-xl bg-panel-2" />}
+      {state && (
+        <div role="radiogroup" aria-label="Sumber data candle" className="grid gap-2 sm:grid-cols-2">
+          {state.options.map((o) => {
+            const active = state.active === o.id;
+            const used = o.remaining_daily != null ? o.daily_limit - o.remaining_daily : null;
+            return (
+              <button
+                key={o.id}
+                role="radio"
+                aria-checked={active}
+                disabled={!o.configured || saving !== null}
+                onClick={() => !active && choose(o.id)}
+                className={`rounded-xl border px-3 py-2.5 text-left transition disabled:opacity-60 ${
+                  active ? "border-brand bg-brand/10" : "border-line"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-bold">{o.label}</span>
+                  <span className={`text-[11px] font-semibold ${active ? "text-brand" : "text-muted"}`}>
+                    {saving === o.id ? "Menyimpan…" : active ? "● Dipakai" : o.configured ? "Pilih" : "API key kosong"}
+                  </span>
+                </div>
+                <div className="mt-0.5 text-[11px] text-muted">{PROVIDER_HINT[o.id]}</div>
+                {used != null && (
+                  <div className="mt-2 space-y-1">
+                    <div className="h-1.5 overflow-hidden rounded-full bg-line">
+                      <div
+                        className={`h-full rounded-full ${o.remaining_daily === 0 ? "bg-sell" : "bg-buy"}`}
+                        style={{ width: `${Math.min(100, (used / o.daily_limit) * 100)}%` }}
+                      />
+                    </div>
+                    <div className="tabular text-[11px] text-muted">
+                      Kuota hari ini: {used} / {o.daily_limit}
+                      {o.remaining_daily === 0 && <span className="font-semibold text-err"> · habis</span>}
+                    </div>
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {error && <p className="text-xs text-err">{error}</p>}
+      <p className="text-xs text-muted">
+        Dipakai untuk candle grafik, analisis sinyal, dan backfill. Pergantian berlaku ±5 detik tanpa restart. Harga
+        antar-provider bisa berbeda sedikit: lakukan ulang kalibrasi harga ke broker setelah mengganti. Streaming
+        real-time Twelve Data (XAUUSD/EURUSD) tetap aktif apa pun pilihannya.
+      </p>
+    </Section>
+  );
+}
+
 function Appearance() {
   const { choice, setChoice } = useTheme();
   return (
@@ -294,6 +378,7 @@ export default function SettingsPage() {
       <AppHeader title="Pengaturan" />
       <main className="mx-auto max-w-3xl space-y-4 px-4 py-4">
         <Appearance />
+        <DataSource />
         <RiskForm />
         <Calibration />
         <InstallGuide />

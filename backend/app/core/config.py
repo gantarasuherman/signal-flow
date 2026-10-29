@@ -20,15 +20,22 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     instruments_file: Path = Path("config/instruments.yaml")
 
-    data_provider: Literal["twelvedata", "mock"] = "twelvedata"
+    # Provider bawaan; Twelve Data / Tiingo bisa diganti saat berjalan dari Pengaturan
+    data_provider: Literal["twelvedata", "tiingo", "mock"] = "twelvedata"
     twelvedata_api_key: SecretStr = SecretStr("")
     twelvedata_rate_limit_per_min: int = Field(default=8, ge=1)
     twelvedata_daily_limit: int = Field(default=800, ge=1)
     # Kuota harian yang tidak boleh dipakai live candle (dicadangkan untuk worker)
     twelvedata_reserved_daily: int = Field(default=300, ge=0)
-    live_refresh_seconds: int = Field(default=20, ge=5, le=300)
+    live_refresh_seconds: int = Field(default=60, ge=5, le=300)
     # Harga real-time per detik via WebSocket Twelve Data (simbol yang didukung paket)
     twelvedata_streaming: bool = True
+
+    tiingo_api_key: SecretStr = SecretStr("")
+    # Batas paket gratis Tiingo (ubah bila paket Anda berbeda)
+    tiingo_rate_limit_per_min: int = Field(default=10, ge=1)
+    tiingo_rate_limit_per_hour: int = Field(default=50, ge=1)
+    tiingo_daily_limit: int = Field(default=1000, ge=1)
 
     scheduler_delay_seconds: int = Field(default=10, ge=0, le=300)
 

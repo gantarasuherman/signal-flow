@@ -42,6 +42,7 @@ export interface SignalView {
   digits: number;
   pip_size: number;
   action: Exclude<Action, "WAIT">;
+  timeframe: Timeframe;
   closes_action: "BUY" | "SELL" | null;
   parent_id: number | null;
   strategy: string;
@@ -51,6 +52,10 @@ export interface SignalView {
   entry: number | null;
   stop_loss: number | null;
   take_profit: number | null;
+  /** SL terkini setelah trailing stop bergeser (geser juga di broker) */
+  trailing_stop: number | null;
+  /** false = TP dilepas, posisi ditutup trailing stop / sinyal CLOSE */
+  take_profit_active: boolean;
   sl_pips: number | null;
   tp_pips: number | null;
   risk_reward: number | null;
@@ -81,6 +86,7 @@ export interface SignalView {
 
 export interface AnalysisOut {
   analyzed_at: string;
+  timeframe: Timeframe;
   candle_time: string | null;
   reasons: string[];
   filters: string[];
@@ -294,6 +300,12 @@ export interface PatternOut {
   strength: number;
   strength_text: string;
   note: string;
+  /** Peluang historis harga bergerak searah pola (null = data < 30 kejadian / netral) */
+  probability: number | null;
+  /** Jumlah kejadian historis pola ini di instrumen & timeframe tsb. */
+  samples: number;
+  /** Kecondongannya (searah / berlawanan pola) cukup meyakinkan secara statistik */
+  reliable: boolean;
 }
 
 export interface PatternMark extends PatternOut {
@@ -302,6 +314,77 @@ export interface PatternMark extends PatternOut {
 
 export interface PatternsResponse {
   symbol: string;
-  timeframes: { timeframe: Timeframe; trend: string; candle_time: number | null; patterns: PatternOut[] }[];
-  conclusion: { bias: "BUY" | "SELL" | "MIXED" | "NONE"; text: string };
+  /** Jumlah candle setelah pola yang dinilai untuk peluang historis */
+  horizon: number;
+  timeframes: {
+    timeframe: Timeframe;
+    trend: string;
+    candle_time: number | null;
+    /** false = candle belum diperbarui, pola tidak dibaca */
+    up_to_date: boolean;
+    patterns: PatternOut[];
+  }[];
+  conclusion: {
+    bias: "BUY" | "SELL" | "MIXED" | "NONE";
+    text: string;
+    probability: number | null;
+    /** Arah yang lebih mungkin (juga saat MIXED / belum meyakinkan) */
+    direction: "naik" | "turun" | null;
+    samples: number;
+  };
+}
+
+export interface PatternOdds {
+  symbol: string;
+  timeframe: Timeframe;
+  name: string;
+  /** Arah bawaan pola: 1 naik, -1 turun */
+  bias: number;
+  samples: number;
+  /** Seberapa sering pola benar (searah bias) */
+  probability: number;
+  /** Arah yang lebih sering terjadi setelah pola (bisa berlawanan dengan bias) */
+  direction: "naik" | "turun";
+  /** Peluang `direction` dalam `horizon` candle */
+  chance: number;
+  /** false = pola lebih sering gagal, arahnya terbalik */
+  follows_pattern: boolean;
+  /** Peluang >= min_edge dan lolos uji keyakinan 95% */
+  reliable: boolean;
+}
+
+export interface PatternOddsResponse {
+  horizon: number;
+  min_samples: number;
+  min_edge: number;
+  rows: PatternOdds[];
+}
+
+export type DataProviderId = "twelvedata" | "tiingo";
+
+export interface DataProviderState {
+  active: DataProviderId;
+  options: {
+    id: DataProviderId;
+    label: string;
+    /** API key sudah diisi di .env */
+    configured: boolean;
+    remaining_daily: number | null;
+    daily_limit: number;
+  }[];
+}
+
+export interface ChartRead {
+  symbol: string;
+  timeframe: Timeframe;
+  lean: "naik" | "turun" | "netral";
+  strength: "kuat" | "sedang" | "lemah";
+  score: number;
+  headline: string;
+  points: { tone: "up" | "down" | "neutral" | "warn"; text: string }[];
+  /** Kondisi yang ditunggu sebelum mempertimbangkan posisi */
+  watch: string;
+  price: number | null;
+  support: number | null;
+  resistance: number | null;
 }

@@ -97,3 +97,35 @@ async def test_waits_when_latest_candle_missing(
     )
     assert snap["action"] == "WAIT"
     assert "Menunggu data" in snap["reasons"][0]
+
+
+async def test_entry_timeframe_follows_request_then_open_position(
+    db_session: AsyncSession, xauusd: Instrument
+) -> None:
+    inst = xauusd.model_copy(update={"symbol": "TESTXAU3"})
+    await _seed(db_session, inst, NOW)
+    await sync_candles(db_session, MockProvider(clock=lambda: NOW), inst, Timeframe.M5, NOW)
+    redis = FakeAsyncRedis()
+    common = {
+        "cfg": AnalysisConfig(
+            filters={"max_atr_ratio": 99, "min_atr_ratio": 0, "max_candle_atr": 99}
+        ),
+        "narrator": Narrator("", "m"),
+        "calendar": FakeCalendar([]),
+    }
+
+    snap = await analyze_instrument(
+        db_session, redis, inst, NOW, strategy=StubStrategy(BUY), timeframe=Timeframe.M5, **common
+    )
+    assert snap["timeframe"] == "M5" and snap["action"] == "BUY"
+    buy = await db_session.get(Signal, snap["signal_id"])
+    assert buy is not None and buy.timeframe == "M5"
+    assert buy.candle_time == datetime(2026, 10, 28, 5, 55, tzinfo=UTC)
+    # entry_valid_minutes 45 (M15) diskalakan → 15 menit untuk M5
+    assert buy.entry_expires_at == buy.candle_time + timedelta(minutes=5 + 15)
+
+    # Posisi aktif tetap dipantau di M5 walau diminta H1
+    again = await analyze_instrument(
+        db_session, redis, inst, NOW, strategy=StubStrategy(BUY), timeframe=Timeframe.H1, **common
+    )
+    assert again["timeframe"] == "M5" and again["action"] == "BUY"

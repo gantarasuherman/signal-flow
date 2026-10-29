@@ -5,11 +5,13 @@ from datetime import datetime
 
 from app.analysis.lifecycle import (
     SignalStatus,
+    TrailingStopConfig,
     check_price_exit,
     exit_price_at_market,
     result_pips,
 )
 from app.analysis.profit_lock import ProfitCloseConfig, profit_lock_reason
+from app.core.timeframes import duration_text
 from app.strategies.base import (
     Action,
     ActiveSignalView,
@@ -57,6 +59,7 @@ def step(
     blocked: list[str],
     max_hold_candles: int,
     profit_close: ProfitCloseConfig | None = None,
+    trailing: TrailingStopConfig | None = None,
 ) -> StepResult:
     active = ctx.active
     last_time = ctx.m15.index[-1].to_pydatetime()
@@ -68,14 +71,21 @@ def step(
         after = ctx.m15[ctx.m15.index > active.candle_time]
         bars_since = len(after)
         hit = check_price_exit(
-            active.action, active.stop_loss, active.take_profit, after, ctx.spread_price
+            active.action,
+            active.stop_loss,
+            active.take_profit,
+            after,
+            ctx.spread_price,
+            entry=active.entry,
+            trailing=trailing,
         )
         if hit:
-            reason = (
-                "Take profit tercapai."
-                if hit.status is SignalStatus.HIT_TP
-                else "Stop loss tersentuh."
-            )
+            if hit.trailing:
+                reason = "Trailing stop tersentuh: keuntungan terbaik dikunci."
+            elif hit.status is SignalStatus.HIT_TP:
+                reason = "Take profit tercapai."
+            else:
+                reason = "Stop loss tersentuh."
             exit_event = _exit(active, hit.status, hit.price, hit.time, reason, ctx)
             active = None
 
@@ -103,7 +113,8 @@ def step(
         if reason is None:
             reason = profit_lock_reason(ctx, active, profit_close)
         if reason is None and bars_since >= max_hold_candles:
-            reason = f"Batas waktu sinyal ({max_hold_candles * 15 // 60} jam) tercapai."
+            limit = duration_text(max_hold_candles * ctx.timeframe.minutes)
+            reason = f"Batas waktu sinyal ({limit}) tercapai."
         if reason:
             price = exit_price_at_market(
                 active.action, float(ctx.m15["close"].iloc[-1]), ctx.spread_price

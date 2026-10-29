@@ -3,6 +3,7 @@ from zoneinfo import ZoneInfo
 
 from app.core.timeframes import (
     Timeframe,
+    duration_text,
     floor_to_timeframe,
     last_closed_candle_open,
     next_candle_close,
@@ -36,3 +37,10 @@ def test_h4_aligned_to_utc() -> None:
 def test_next_close_for_countdown() -> None:
     now = datetime(2026, 10, 29, 8, 0, 0, tzinfo=UTC)
     assert next_candle_close(now, Timeframe.M15) == datetime(2026, 10, 29, 8, 15, tzinfo=UTC)
+
+
+def test_duration_text() -> None:
+    assert duration_text(32) == "32 menit"
+    assert duration_text(32 * 15) == "8 jam"
+    assert duration_text(32 * 5) == "2,7 jam"
+    assert duration_text(32 * 240) == "5,3 hari"

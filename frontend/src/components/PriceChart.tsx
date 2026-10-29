@@ -114,7 +114,14 @@ function buildMarkers(
 }
 
 /** Penanda pola candlestick KUAT saja (di area support/resistance dan searah tren), agar grafik tidak penuh. */
-function patternMarkers(patterns: PatternMark[], colors: { up: string; down: string }): SeriesMarker<Time>[] {
+/** Layar sempit (HP): nama pola tidak ditulis di grafik agar tidak menumpuk di atas candle. */
+const MARKER_TEXT_MIN_WIDTH = 640;
+
+function patternMarkers(
+  patterns: PatternMark[],
+  colors: { up: string; down: string },
+  withText: boolean,
+): SeriesMarker<Time>[] {
   return patterns
     .filter((p) => p.strength >= 3)
     .map((p) => ({
@@ -123,7 +130,7 @@ function patternMarkers(patterns: PatternMark[], colors: { up: string; down: str
       shape: "circle",
       size: 0.6,
       color: `${p.bias > 0 ? colors.up : colors.down}99`,
-      text: `${p.name} ★`,
+      text: withText ? `${p.name} ★` : "",
     }));
 }
 
@@ -137,9 +144,19 @@ interface Props {
   /** naik setiap kali ada analisis baru → muat ulang candle tertutup */
   reloadKey: number;
   onLivePrice?: (price: number | null) => void;
+  /** timeframe grafik berubah (mis. panel pola ikut membaca timeframe ini) */
+  onTimeframe?: (tf: Timeframe) => void;
 }
 
-export default function PriceChart({ symbol, digits, signals, history, reloadKey, onLivePrice }: Props) {
+export default function PriceChart({
+  symbol,
+  digits,
+  signals,
+  history,
+  reloadKey,
+  onLivePrice,
+  onTimeframe,
+}: Props) {
   const container = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeries = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -155,6 +172,9 @@ export default function PriceChart({ symbol, digits, signals, history, reloadKey
   const { resolved } = useTheme();
 
   useEffect(() => setPrefs(loadPrefs()), []);
+  useEffect(() => {
+    if (prefs) onTimeframe?.(prefs.tf);
+  }, [prefs?.tf, onTimeframe]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!prefs) return;
     try {
@@ -222,7 +242,7 @@ export default function PriceChart({ symbol, digits, signals, history, reloadKey
     const chart = createChart(el, {
       autoSize: true,
       layout: {
-        background: { type: ColorType.Solid, color: C.bg },
+        background: { type: ColorType.Solid, color: C.panel || C.bg }, // grafik di atas kartu
         textColor: C.text,
         fontSize: 11,
         panes: { separatorColor: C.line, separatorHoverColor: C.line },
@@ -317,7 +337,7 @@ export default function PriceChart({ symbol, digits, signals, history, reloadKey
       const first = candles[0].time as number;
       const last = candles.at(-1)!.time as number;
       const marks = buildMarkers(history, prefs.tf, first, last, C);
-      if (toggles.pola && data.patterns) marks.push(...patternMarkers(data.patterns, C));
+      if (toggles.pola && data.patterns) marks.push(...patternMarkers(data.patterns, C, el.clientWidth >= MARKER_TEXT_MIN_WIDTH));
       createSeriesMarkers(
         series,
         marks.sort((a, b) => (a.time as number) - (b.time as number)),
@@ -331,8 +351,8 @@ export default function PriceChart({ symbol, digits, signals, history, reloadKey
         price != null &&
         series.createPriceLine({ price, color, lineStyle: style, lineWidth: 1, axisLabelVisible: true, title: tag(sig) + title });
       line(sig.entry, sig.source === "ai" ? C.ai : C.fg, `Entry ${sig.action}`);
-      line(sig.stop_loss, C.down, "SL");
-      line(sig.take_profit, C.up, "TP");
+      line(sig.trailing_stop ?? sig.stop_loss, C.down, sig.trailing_stop != null ? "SL trail" : "SL");
+      if (sig.take_profit_active) line(sig.take_profit, C.up, "TP");
     }
 
     // Legenda OHLC mengikuti crosshair
@@ -369,72 +389,97 @@ export default function PriceChart({ symbol, digits, signals, history, reloadKey
 
   return (
     <section className="space-y-2">
-      <div className="flex flex-wrap items-center gap-1">
-        {TIMEFRAMES.map((t) => (
-          <button
-            key={t}
-            onClick={() => setPrefs({ ...prefs, tf: t })}
-            className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${t === prefs.tf ? "bg-panel-2 text-fg" : "text-muted"}`}
-          >
-            {t}
-          </button>
-        ))}
-        <span className="flex-1" />
-        {(["ema", "bb", "rsi", "macd", "pola"] as const).map((k) => (
-          <button
-            key={k}
-            onClick={() => toggle(k)}
-            className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold uppercase ${prefs.toggles[k] ? "bg-panel-2 text-fg" : "text-muted"}`}
-          >
-            {k}
-          </button>
-        ))}
+      {/* Dua kelompok utuh: di HP kelompok indikator turun ke baris kedua, tidak terpecah */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div role="radiogroup" aria-label="Timeframe grafik" className="inline-flex rounded-xl bg-panel p-0.5">
+          {TIMEFRAMES.map((t) => (
+            <button
+              key={t}
+              role="radio"
+              aria-checked={t === prefs.tf}
+              onClick={() => setPrefs({ ...prefs, tf: t })}
+              className={`min-w-[44px] rounded-lg px-2.5 py-1.5 text-sm font-semibold ${
+                t === prefs.tf ? "bg-panel-2 text-fg shadow-sm" : "text-muted"
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+        <div aria-label="Indikator" className="inline-flex rounded-xl bg-panel p-0.5">
+          {(["ema", "bb", "rsi", "macd", "pola"] as const).map((k) => (
+            <button
+              key={k}
+              aria-pressed={prefs.toggles[k]}
+              onClick={() => toggle(k)}
+              className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold uppercase ${
+                prefs.toggles[k] ? "bg-panel-2 text-fg shadow-sm" : "text-muted"
+              }`}
+            >
+              {k}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="relative">
         <div
           ref={container}
-          className="h-[55vh] min-h-[340px] w-full overflow-hidden rounded-xl border border-line"
+          className="surface h-[55vh] min-h-[340px] w-full overflow-hidden rounded-2xl"
         />
-        {legend && (
-          <div className="tabular pointer-events-none absolute left-2 top-1.5 z-10 flex flex-wrap gap-x-2 text-[11px] text-muted">
-            <span className="text-fg-soft">{symbol} · {prefs.tf}</span>
-            <span>O <b className="font-medium text-fg">{formatPrice(legend.o, digits)}</b></span>
-            <span>H <b className="font-medium text-fg">{formatPrice(legend.h, digits)}</b></span>
-            <span>L <b className="font-medium text-fg">{formatPrice(legend.l, digits)}</b></span>
-            <span>
-              C <b className={`font-medium ${legend.c >= legend.o ? "text-buy" : "text-sell"}`}>{formatPrice(legend.c, digits)}</b>
-            </span>
+        {/* Legenda dibatasi sebelum skala harga (±76px) agar tidak menimpa label harga */}
+        <div className="tabular pointer-events-none absolute left-2 right-[76px] top-1.5 z-10 space-y-0.5 text-[11px] text-muted">
+          {legend && (
+            <div className="flex flex-wrap gap-x-2">
+              <span className="text-fg-soft">
+                {symbol} · {prefs.tf}
+              </span>
+              <span>
+                O <b className="font-medium text-fg">{formatPrice(legend.o, digits)}</b>
+              </span>
+              <span>
+                H <b className="font-medium text-fg">{formatPrice(legend.h, digits)}</b>
+              </span>
+              <span>
+                L <b className="font-medium text-fg">{formatPrice(legend.l, digits)}</b>
+              </span>
+              <span>
+                C{" "}
+                <b className={`font-medium ${legend.c >= legend.o ? "text-buy" : "text-sell"}`}>
+                  {formatPrice(legend.c, digits)}
+                </b>
+              </span>
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px]">
+            {data && !data.market_open ? (
+              <span className="rounded bg-close/20 px-1.5 py-0.5 font-bold text-close">Pasar tutup</span>
+            ) : (
+              <span
+                className={`flex items-center gap-1 rounded px-1.5 py-0.5 font-bold ${
+                  streaming ? "bg-buy/15 text-buy" : "bg-panel-2 text-muted"
+                }`}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${streaming ? "animate-pulse bg-buy" : "bg-muted"}`} />
+                {streaming ? "LIVE" : `±${data?.refresh_seconds ?? 60} dtk`}
+              </span>
+            )}
+            {prefs.toggles.ema && (
+              <>
+                <span style={{ color: COLORS.ema20 }}>EMA20</span>
+                <span style={{ color: COLORS.ema50 }}>EMA50</span>
+                <span style={{ color: COLORS.ema200 }}>EMA200</span>
+              </>
+            )}
           </div>
-        )}
-        {prefs.toggles.ema && (
-          <div className="pointer-events-none absolute left-2 top-6 z-10 flex gap-2 text-[10px]">
-            <span style={{ color: COLORS.ema20 }}>EMA20</span>
-            <span style={{ color: COLORS.ema50 }}>EMA50</span>
-            <span style={{ color: COLORS.ema200 }}>EMA200</span>
-          </div>
-        )}
-        {data && !data.market_open ? (
-          <div className="pointer-events-none absolute right-16 top-2 z-10 rounded bg-close/20 px-2 py-0.5 text-xs text-close">
-            Pasar tutup
-          </div>
-        ) : (
-          <div
-            className={`pointer-events-none absolute right-16 top-6 z-10 flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold ${
-              streaming ? "bg-buy/15 text-buy" : "bg-panel-2 text-muted"
-            }`}
-          >
-            <span className={`h-1.5 w-1.5 rounded-full ${streaming ? "animate-pulse bg-buy" : "bg-muted"}`} />
-            {streaming ? "LIVE" : `±${data?.refresh_seconds ?? 20} dtk`}
-          </div>
-        )}
+        </div>
       </div>
       {(error || data?.warning) && <p className="text-xs text-close">{error ?? data?.warning}</p>}
       <p className="text-[11px] text-muted">
         Waktu dalam WIB. Cubit untuk zoom, geser horizontal untuk melihat histori. Indikator diperbarui setiap candle tutup;
         {streaming
           ? " harga bergerak real-time (tiap ±1 detik)."
-          : ` candle berjalan diperbarui ±${data?.refresh_seconds ?? 20} detik sekali (real-time per detik tidak tersedia untuk ${symbol} di paket data gratis).`}
+          : ` candle berjalan diperbarui ±${data?.refresh_seconds ?? 60} detik sekali (real-time per detik tidak tersedia untuk ${symbol} di paket data gratis).`}
       </p>
     </section>
   );

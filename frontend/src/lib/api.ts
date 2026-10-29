@@ -2,9 +2,13 @@ import type {
   BacktestRequest,
   BacktestRun,
   CandlesResponse,
+  ChartRead,
   LiveStats,
+  PatternOddsResponse,
   PatternsResponse,
   DashboardResponse,
+  DataProviderId,
+  DataProviderState,
   Health,
   InstrumentCard,
   InstrumentOut,
@@ -22,6 +26,8 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public status: number,
+    /** Detik dari header Retry-After (mis. jeda analisis AI), bila ada */
+    public retryAfter: number | null = null,
   ) {
     super(message);
   }
@@ -48,7 +54,8 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       // respons bukan JSON
     }
-    throw new ApiError(message, res.status);
+    const retryAfter = Number(res.headers.get("retry-after"));
+    throw new ApiError(message, res.status, retryAfter > 0 ? retryAfter : null);
   }
   return (await res.json()) as T;
 }
@@ -85,17 +92,28 @@ export const endpoints = {
   watchAll: () => api<{ enabled: boolean }>("/settings/watch-all"),
   setWatchAll: (enabled: boolean) => api<{ enabled: boolean }>("/settings/watch-all", json("PUT", { enabled })),
   health: () => api<Health>("/health"),
+  dataProvider: () => api<DataProviderState>("/settings/data-provider"),
+  setDataProvider: (provider: DataProviderId) =>
+    api<DataProviderState>("/settings/data-provider", json("PUT", { provider })),
   stats: (days: number, source: Source = "rule") => api<LiveStats>(`/stats?days=${days}&source=${source}`),
   backtests: () => api<BacktestRun[]>("/backtests"),
   backtest: (id: number) => api<BacktestRun>(`/backtests/${id}`),
   startBacktest: (body: Partial<BacktestRequest>) => api<BacktestRun>("/backtests", json("POST", body)),
   strategyStatus: () => api<StrategyStatus[]>("/strategy/status"),
-  runAi: (symbol: string, votes?: number) =>
+  runAi: (symbol: string, opts: { votes?: number; timeframe?: Timeframe } = {}) =>
     api<{ card: InstrumentCard; warning: string | null; cooldown_seconds: number }>(
-      `/analysis/ai?symbol=${encodeURIComponent(symbol)}${votes ? `&votes=${votes}` : ""}`,
+      `/analysis/ai?symbol=${encodeURIComponent(symbol)}${opts.votes ? `&votes=${opts.votes}` : ""}${
+        opts.timeframe ? `&timeframe=${opts.timeframe}` : ""
+      }`,
       { method: "POST" },
     ),
   aiWarning: (symbol: string) =>
     api<{ warning: string | null }>(`/analysis/ai/warning?symbol=${encodeURIComponent(symbol)}`),
-  patterns: (symbol: string) => api<PatternsResponse>(`/patterns?symbol=${encodeURIComponent(symbol)}`),
+  chartAnalysis: (symbol: string, timeframe: Timeframe) =>
+    api<ChartRead>(`/analysis/chart?symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}`),
+  patternOdds: () => api<PatternOddsResponse>("/patterns/stats"),
+  patterns: (symbol: string, timeframe?: Timeframe) =>
+    api<PatternsResponse>(
+      `/patterns?symbol=${encodeURIComponent(symbol)}${timeframe ? `&timeframe=${timeframe}` : ""}`,
+    ),
 };

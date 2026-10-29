@@ -152,7 +152,14 @@ async def evaluate_ai(
             instrument, now, window, h1_now, h4_now, spread_price, base_track.active
         )
         base_track.apply(
-            step(baseline, base_ctx, blocked, cfg.max_hold_candles, cfg.profit_close),
+            step(
+                baseline,
+                base_ctx,
+                blocked,
+                cfg.max_hold_candles,
+                cfg.profit_close,
+                cfg.trailing_stop,
+            ),
             open_time.to_pydatetime(),
         )
 
@@ -168,7 +175,9 @@ async def evaluate_ai(
                 await asyncio.sleep(call_gap_seconds)
             else:
                 budget_left = False
-        result = step(ai, ai_ctx, blocked, cfg.max_hold_candles, cfg.profit_close)
+        result = step(
+            ai, ai_ctx, blocked, cfg.max_hold_candles, cfg.profit_close, cfg.trailing_stop
+        )
         if result.new_entry:
             ai_accepted += 1
         ai_track.apply(result, open_time.to_pydatetime())

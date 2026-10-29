@@ -36,3 +36,12 @@ def last_closed_candle_open(now: datetime, timeframe: Timeframe) -> datetime:
 def next_candle_close(now: datetime, timeframe: Timeframe) -> datetime:
     """Waktu tutup candle yang sedang berjalan (untuk countdown)."""
     return floor_to_timeframe(now, timeframe) + timeframe.delta
+
+
+def duration_text(minutes: int) -> str:
+    """Durasi untuk teks pengguna, mis. 32 menit / 8 jam / 2,7 jam / 5,3 hari."""
+    if minutes < 60:
+        return f"{minutes} menit"
+    value, unit = (minutes / 60, "jam") if minutes < 48 * 60 else (minutes / 1440, "hari")
+    text = f"{value:.0f}" if value.is_integer() else f"{value:.1f}".replace(".", ",")
+    return f"{text} {unit}"

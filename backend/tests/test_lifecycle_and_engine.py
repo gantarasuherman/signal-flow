@@ -6,7 +6,13 @@ import pytest
 from pydantic import BaseModel
 
 from app.analysis.engine import step
-from app.analysis.lifecycle import SignalStatus, check_price_exit, result_pips
+from app.analysis.lifecycle import (
+    SignalStatus,
+    TrailingStopConfig,
+    check_price_exit,
+    result_pips,
+    trailing_stops,
+)
 from app.core.instruments import Instrument
 from app.strategies import Action, ActiveSignalView, Decision, Strategy, StrategyContext
 from tests.conftest import make_frame
@@ -34,6 +40,56 @@ def test_sell_sl_uses_ask_price() -> None:
     hit = check_price_exit(Action.SELL, 101.0, 98.0, candles((100.8, 99.5)), 0.3)
     assert hit is not None and hit.status is SignalStatus.HIT_SL
     assert check_price_exit(Action.SELL, 101.0, 98.0, candles((100.8, 99.5)), 0.1) is None
+
+
+TRAIL = TrailingStopConfig(enabled=True, activate_r=1.0, distance_r=1.0, take_profit=False)
+
+
+def test_buy_trailing_stop_locks_profit_from_best_high() -> None:
+    # entry 100, SL 99 (R = 1). High 101 → stop ke 100 (impas); high 103 → stop 102.
+    rows = candles((101.0, 99.5), (103.0, 101.5), (102.8, 101.9))
+    hit = check_price_exit(Action.BUY, 99.0, 102.0, rows, 0.0, entry=100.0, trailing=TRAIL)
+    assert hit is not None and hit.trailing and hit.status is SignalStatus.CLOSED
+    assert hit.price == 102.0  # TP 102 dilepas → untung dibiarkan berjalan
+
+
+def test_sell_trailing_stop_mirrors_buy_with_ask_prices() -> None:
+    # SELL entry 100 (BID), SL 101 (ASK), spread 0.2 → low 98.8 = ASK 99.0 = untung 1R
+    rows = candles((100.1, 98.8), (99.4, 97.8), (99.3, 98.0))
+    hit = check_price_exit(Action.SELL, 101.0, 97.0, rows, 0.2, entry=100.0, trailing=TRAIL)
+    assert hit is not None and hit.trailing
+    assert hit.price == pytest.approx(99.0)  # ASK terbaik 98.0 + 1R
+
+
+def test_trailing_uses_only_previous_candles_and_keeps_plain_sl() -> None:
+    # Candle yang sama naik 1R lalu turun ke entry: stop belum pindah → tidak tertutup
+    rows = candles((101.5, 99.6))
+    assert check_price_exit(Action.BUY, 99.0, 105.0, rows, 0.0, entry=100.0, trailing=TRAIL) is None
+    # Belum pernah untung 1R → SL awal tetap berlaku sebagai HIT_SL biasa
+    hit = check_price_exit(
+        Action.BUY,
+        99.0,
+        105.0,
+        candles((100.5, 99.5), (100.2, 98.9)),
+        0.0,
+        entry=100.0,
+        trailing=TRAIL,
+    )
+    assert hit is not None and hit.status is SignalStatus.HIT_SL and not hit.trailing
+
+
+def test_trailing_stops_last_value_is_current_stop() -> None:
+    rows = candles((101.0, 99.5), (103.0, 101.5))
+    stops = trailing_stops(Action.BUY, 99.0, 100.0, rows, 0.0, TRAIL)
+    assert stops == [99.0, 100.0, 102.0]  # SL awal → impas → ikut high 103 − 1R
+
+
+def test_trailing_breakeven_covers_spread() -> None:
+    # BUY dibayar di ASK 100.5; untung 1R baru saat BID 101.5 → stop pertama = 100.5
+    rows = candles((101.4, 100.2), (101.5, 100.6), (101.0, 100.4))
+    hit = check_price_exit(Action.BUY, 99.0, 110.0, rows, 0.5, entry=100.0, trailing=TRAIL)
+    assert hit is not None and hit.price == pytest.approx(100.5)
+    assert result_pips(Action.BUY, 100.0, hit.price, 0.5, 0.1) == 0.0
 
 
 def test_result_pips_net_of_spread() -> None:

@@ -160,7 +160,9 @@ export function SignalCard({ card, livePrice, href }: Props) {
       {showSignal && signal && (
         <div className="mt-3 space-y-3">
           <div className="flex flex-wrap gap-x-3 text-xs text-muted">
-            <span>Sinyal {dateTimeWIB(signal.signal_time)} WIB</span>
+            <span>
+              Sinyal {signal.timeframe} · {dateTimeWIB(signal.signal_time)} WIB
+            </span>
             {signal.confidence_label && (
               <span>
                 Keyakinan <strong className="uppercase text-fg">{signal.confidence_label}</strong>
@@ -178,12 +180,25 @@ export function SignalCard({ card, livePrice, href }: Props) {
                 digits={digits}
                 tone="text-sell"
               />
+              {signal.trailing_stop != null && (
+                <PriceRow
+                  label="Geser SL ke (trailing)"
+                  price={signal.trailing_stop}
+                  pips="untung dikunci"
+                  digits={digits}
+                  tone="text-sell"
+                />
+              )}
               <PriceRow
-                label="Take profit"
+                label={signal.take_profit_active ? "Take profit" : "Target awal (TP dilepas)"}
                 price={signal.take_profit}
-                pips={`${formatPips(signal.tp_pips)} pip`}
+                pips={
+                  signal.take_profit_active
+                    ? `${formatPips(signal.tp_pips)} pip`
+                    : "jangan pasang TP; trailing stop yang menutup"
+                }
                 digits={digits}
-                tone="text-buy"
+                tone={signal.take_profit_active ? "text-buy" : "text-muted"}
               />
               <div className="flex justify-between py-1.5 text-xs text-muted">
                 <span>R:R 1:{signal.risk_reward?.toFixed(1) ?? "—"}</span>

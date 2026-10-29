@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { endpoints } from "@/lib/api";
+import { ApiError, endpoints } from "@/lib/api";
 import { ACTION_STYLE } from "@/lib/signal";
-import type { Action } from "@/lib/types";
+import type { Action, Timeframe } from "@/lib/types";
+import { TimeframePicker } from "./TimeframePicker";
 
 type Progress =
   | { state: "antri" }
   | { state: "jalan" }
+  | { state: "tunggu"; until: number }
   | { state: "selesai"; action: Action }
   | { state: "gagal"; message: string };
 
@@ -21,7 +23,8 @@ interface Props {
 /**
  * Kontrol untuk keempat instrumen sekaligus:
  * - "Pantau keempatnya": strategi menganalisis semua instrumen tiap 15 menit.
- * - "AI semua": AI Groq menganalisis semua instrumen bergantian (1 suara per instrumen).
+ * - "AI semua": AI Groq menganalisis semua instrumen bergantian (1 suara per instrumen) pada
+ *   timeframe pilihan M1–H4.
  */
 export function AllInstrumentsBar({ symbols, onSelect, onChanged }: Props) {
   const [watchAll, setWatchAll] = useState<boolean | null>(null);
@@ -29,6 +32,16 @@ export function AllInstrumentsBar({ symbols, onSelect, onChanged }: Props) {
   const [progress, setProgress] = useState<Record<string, Progress>>({});
   const [running, setRunning] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [timeframe, setTimeframe] = useState<Timeframe>("M15");
+  const [, setTick] = useState(0);
+
+  // Hitung mundur untuk instrumen yang sedang menunggu jeda analisis AI
+  const waiting = Object.values(progress).some((p) => p.state === "tunggu");
+  useEffect(() => {
+    if (!waiting) return;
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [waiting]);
 
   useEffect(() => {
     endpoints
@@ -58,7 +71,16 @@ export function AllInstrumentsBar({ symbols, onSelect, onChanged }: Props) {
     for (const [i, symbol] of symbols.entries()) {
       setProgress((p) => ({ ...p, [symbol]: { state: "jalan" } }));
       try {
-        const res = await endpoints.runAi(symbol, 1);
+        const analyze = () => endpoints.runAi(symbol, { votes: 1, timeframe });
+        const res = await analyze().catch(async (e) => {
+          // Instrumen baru saja dianalisis: tunggu jedanya habis lalu coba sekali lagi
+          if (!(e instanceof ApiError) || e.status !== 429 || !e.retryAfter) throw e;
+          const until = Date.now() + e.retryAfter * 1000;
+          setProgress((p) => ({ ...p, [symbol]: { state: "tunggu", until } }));
+          await new Promise((r) => setTimeout(r, e.retryAfter! * 1000 + 500));
+          setProgress((p) => ({ ...p, [symbol]: { state: "jalan" } }));
+          return analyze();
+        });
         setProgress((p) => ({ ...p, [symbol]: { state: "selesai", action: res.card.action } }));
       } catch (e) {
         const message = (e as Error).message;
@@ -113,6 +135,7 @@ export function AllInstrumentsBar({ symbols, onSelect, onChanged }: Props) {
           {running ? "Menganalisis…" : `🧠 AI semua (${symbols.length})`}
         </button>
       </div>
+      <TimeframePicker value={timeframe} onChange={setTimeframe} disabled={running} />
 
       {hasProgress && (
         <div className="grid grid-cols-4 gap-1.5">
@@ -121,6 +144,10 @@ export function AllInstrumentsBar({ symbols, onSelect, onChanged }: Props) {
             if (!p) return null;
             let body: React.ReactNode;
             if (p.state === "antri") body = <span className="text-muted">antri</span>;
+            else if (p.state === "tunggu")
+              body = (
+                <span className="text-muted">tunggu {Math.max(0, Math.ceil((p.until - Date.now()) / 1000))} dtk</span>
+              );
             else if (p.state === "jalan")
               body = (
                 <span className="inline-flex items-center gap-1 text-ai">
@@ -153,8 +180,8 @@ export function AllInstrumentsBar({ symbols, onSelect, onChanged }: Props) {
       {note && <p className="rounded-lg bg-sell/10 px-2.5 py-1.5 text-[11px] text-err">{note}</p>}
       {hasProgress && !running && (
         <p className="text-[11px] text-muted">
-          AI semua memakai 1 suara per instrumen (lebih cepat, sedikit kurang teliti). Ketuk instrumen untuk melihat
-          detailnya. Hasil AI bersifat eksperimen.
+          AI semua memakai 1 suara per instrumen (lebih cepat, sedikit kurang teliti). Instrumen yang masih punya
+          posisi AI dicek di timeframe posisinya. Ketuk instrumen untuk melihat detailnya. Hasil AI bersifat eksperimen.
         </p>
       )}
     </section>

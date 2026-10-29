@@ -15,7 +15,11 @@ from app.core.timeframes import Timeframe
 from app.repositories import instrument_settings as settings_repo
 from app.services.candle_sync import refresh_if_stale
 from app.services.risk_prefs import get_risk_prefs
-from app.services.signal_engine import analyze_instrument
+from app.services.signal_engine import (
+    analysis_timeframes,
+    analyze_instrument,
+    resolve_timeframe,
+)
 from app.services.views import InstrumentCard, build_card
 from app.strategies import create_strategy
 
@@ -50,6 +54,10 @@ async def run_ai_analysis(
         int | None,
         Query(ge=1, le=5, description="Jumlah suara AI; 1 = cepat (analisis 4 sekaligus)"),
     ] = None,
+    timeframe: Annotated[
+        Timeframe,
+        Query(description="Timeframe entry M1–H4; posisi AI aktif tetap di timeframe-nya"),
+    ] = Timeframe.M15,
 ) -> AiAnalysisResponse:
     """Minta keputusan AI Groq sekarang: BUY / SELL / WAIT, atau HOLD / CLOSE untuk posisi
     AI yang sedang aktif. Butuh ±10–30 detik (3 suara AI)."""
@@ -63,7 +71,9 @@ async def run_ai_analysis(
     wait = await redis.ttl(f"ai:cooldown:{instrument.symbol}")
     if wait and wait > 0:
         raise HTTPException(
-            429, f"Tunggu {wait} detik sebelum menganalisis {instrument.symbol} lagi."
+            429,
+            f"Tunggu {wait} detik sebelum menganalisis {instrument.symbol} lagi.",
+            headers={"Retry-After": str(wait)},
         )
     if not await redis.set(f"ai:busy:{instrument.symbol}", "1", nx=True, ex=BUSY_TTL_SECONDS):
         raise HTTPException(
@@ -72,7 +82,8 @@ async def run_ai_analysis(
 
     try:
         now = datetime.now(UTC)
-        for tf in (Timeframe.M15, Timeframe.H1, Timeframe.H4):
+        timeframe = await resolve_timeframe(session, instrument.symbol, "ai", timeframe)
+        for tf in analysis_timeframes(timeframe):
             await refresh_if_stale(session, provider, redis, instrument, tf, now)
         cfg = get_analysis_config()
         # Atas permintaan pengguna: AI selalu ditanya (tanpa saringan calon setup)
@@ -80,7 +91,12 @@ async def run_ai_analysis(
         if votes is not None:
             params["votes"] = votes
         await analyze_instrument(
-            session, redis, instrument, now, strategy=create_strategy("ai_groq", params)
+            session,
+            redis,
+            instrument,
+            now,
+            strategy=create_strategy("ai_groq", params),
+            timeframe=timeframe,
         )
         await redis.set(f"ai:cooldown:{instrument.symbol}", "1", ex=COOLDOWN_SECONDS)
     finally:

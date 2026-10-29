@@ -137,6 +137,11 @@ class TwelveDataProvider(DataProvider):
 
             message = str(data.get("message", "")) if isinstance(data, dict) else resp.text
             if code == 429:
+                if "for the day" in message.lower():
+                    # Kuota harian habis: menunggu 60 detik tidak membantu, hanya membuang kredit
+                    if self._limiter:
+                        await self._limiter.mark_exhausted()
+                    raise RateLimitError(f"Kuota harian Twelve Data habis. {message}")
                 if attempt == self._max_retries:
                     raise RateLimitError(message or "Rate limit Twelve Data")
                 logger.warning("Rate limit Twelve Data, menunggu 60 detik")

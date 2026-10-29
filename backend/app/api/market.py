@@ -17,6 +17,7 @@ from app.core.market_hours import is_market_open
 from app.core.redis import get_redis
 from app.core.timeframes import Timeframe
 from app.data.errors import ProviderError
+from app.data.providers import PROVIDER_LABELS
 from app.repositories import candles as candles_repo
 from app.repositories import instrument_settings as settings_repo
 from app.services.calibration import CalibrationError, calibrate, reset_calibration
@@ -24,6 +25,15 @@ from app.services.candle_sync import refresh_if_stale
 from app.services.live_candle import fetch_live
 from app.services.signal_engine import candles_to_frame
 from app.services.views import CandleOut, InstrumentOut, candle_out, instrument_out
+
+
+def quota_exhausted_warning(provider_name: str) -> str:
+    label = PROVIDER_LABELS.get(provider_name, provider_name)
+    return (
+        f"Kuota harian {label} habis (reset 00:00 UTC / 07:00 WIB). Menampilkan data tersimpan. "
+        "Sumber data bisa diganti di Pengaturan."
+    )
+
 
 router = APIRouter(tags=["market"])
 
@@ -187,13 +197,18 @@ async def get_candles(
     if include_live:
         live, live_at, live_warning = await fetch_live(provider, get_redis(), instrument, timeframe)
 
+    warning = warning or live_warning
+    if warning is None and await provider.remaining_daily_credits() == 0:
+        # Penyegaran ditolak lokal tanpa pesan; tetap jelaskan mengapa grafik tidak bergerak
+        warning = quota_exhausted_warning(provider.name)
+
     return CandlesResponse(
         symbol=instrument.symbol,
         timeframe=timeframe,
         adjusted=adjusted,
         price_offset=offset,
         market_open=is_market_open(instrument.asset_class, now),
-        warning=warning or live_warning,
+        warning=warning,
         candles=[candle_out(row, offset, instrument.digits) for row in rows],
         live=candle_out(live, offset, instrument.digits) if live else None,
         live_updated_at=live_at,

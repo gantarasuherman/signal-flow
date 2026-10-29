@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { endpoints } from "@/lib/api";
 import { relativeTime } from "@/lib/format";
-import type { InstrumentCard } from "@/lib/types";
+import type { InstrumentCard, Timeframe } from "@/lib/types";
 import { SignalStrip } from "./SignalStrip";
+import { TimeframePicker } from "./TimeframePicker";
 
 interface Props {
   symbol: string;
@@ -15,7 +16,7 @@ interface Props {
 
 /**
  * Analisis AI sesuai permintaan: AI Groq hanya bekerja saat tombol ditekan, lalu memberi
- * status BUY / SELL / CLOSE / WAIT untuk instrumen yang sedang dibuka.
+ * status BUY / SELL / CLOSE / WAIT untuk instrumen yang sedang dibuka, pada timeframe pilihan M1–H4.
  */
 export function AiPanel({ symbol, card, livePrice, onResult }: Props) {
   const [loading, setLoading] = useState(false);
@@ -23,6 +24,7 @@ export function AiPanel({ symbol, card, livePrice, onResult }: Props) {
   const [warning, setWarning] = useState<string | null>(null);
   const [cooldownUntil, setCooldownUntil] = useState(0);
   const [now, setNow] = useState(Date.now());
+  const [timeframe, setTimeframe] = useState<Timeframe>("M15");
 
   useEffect(() => {
     setError(null);
@@ -41,12 +43,14 @@ export function AiPanel({ symbol, card, livePrice, onResult }: Props) {
   const cooldown = Math.max(0, Math.ceil((cooldownUntil - now) / 1000));
   const hasPosition = card?.signal?.status === "ACTIVE" || card?.signal?.status === "EXPIRED";
   const analyzedAt = card?.analysis && !card.analysis.details?.idle ? card.analysis.analyzed_at : null;
+  // Posisi AI aktif selalu dicek di timeframe tempat posisi dibuka
+  const effectiveTf = hasPosition && card?.signal ? card.signal.timeframe : timeframe;
 
   const run = async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await endpoints.runAi(symbol);
+      const res = await endpoints.runAi(symbol, { timeframe });
       onResult(res.card);
       setWarning(res.warning);
       setCooldownUntil(Date.now() + res.cooldown_seconds * 1000);
@@ -67,7 +71,7 @@ export function AiPanel({ symbol, card, livePrice, onResult }: Props) {
           </div>
           <div className="text-[11px] text-muted">
             {analyzedAt
-              ? `Terakhir dianalisis ${relativeTime(analyzedAt)}`
+              ? `Terakhir dianalisis ${relativeTime(analyzedAt)} · ${card?.analysis?.timeframe ?? "M15"}`
               : `Tekan tombol untuk meminta keputusan AI tentang ${symbol} sekarang.`}
           </div>
         </div>
@@ -80,10 +84,12 @@ export function AiPanel({ symbol, card, livePrice, onResult }: Props) {
         </button>
       </div>
 
+      <TimeframePicker value={effectiveTf} onChange={setTimeframe} disabled={loading || hasPosition} />
+
       {loading && (
         <div className="flex items-center gap-2 rounded-xl bg-ai/10 px-3 py-2 text-xs text-ai">
           <span className="h-3 w-3 animate-spin rounded-full border-2 border-ai border-t-transparent" />
-          AI membaca grafik {symbol} (tren H4/H1/M15, indikator, pola candlestick)… ±10–30 detik
+          AI membaca grafik {symbol} {effectiveTf} (tren H4/H1, indikator, pola candlestick)… ±10–30 detik
         </div>
       )}
       {error && <p className="rounded-xl bg-sell/10 px-3 py-2 text-xs text-err">{error}</p>}
@@ -93,7 +99,7 @@ export function AiPanel({ symbol, card, livePrice, onResult }: Props) {
 
       <p className="text-[11px] leading-snug text-muted">
         {hasPosition
-          ? "Ada posisi AI aktif: TP/SL dipantau otomatis. Tekan Cek posisi untuk menanyakan apakah perlu CLOSE."
+          ? `Ada posisi AI aktif (${effectiveTf}): TP/SL dipantau otomatis. Tekan Cek posisi untuk menanyakan apakah perlu CLOSE.`
           : "AI hanya bekerja saat tombol ditekan (hemat kuota). Hasil: BUY / SELL / WAIT; belum bisa di-backtest, gunakan akun demo."}
       </p>
     </section>

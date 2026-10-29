@@ -22,7 +22,8 @@ ke akun broker. Anda membuka dashboard di HP lalu mengeksekusi sendiri di aplika
 | `postgres` | PostgreSQL 16                      | 5432*       | Candle, sinyal, kalibrasi, backtest     |
 | `redis`    | Redis 7                            | 6379*       | Cache, lock, pub/sub sinyal real-time   |
 
-\* hanya terbuka di `127.0.0.1`. Port bisa diubah lewat `APP_PORT` dan `BACKEND_PORT` di `.env`.
+\* hanya terbuka di `127.0.0.1`. Port bisa diubah lewat `APP_PORT`, `BACKEND_PORT`,
+`POSTGRES_PORT`, dan `REDIS_PORT` di `.env`.
 
 ```
 SignalFlow/
@@ -47,12 +48,18 @@ SignalFlow/
 ## Cara menjalankan
 
 Prasyarat: Docker Desktop (Windows/macOS) atau Docker Engine + Compose v2 (Linux).
+Semua perintah di bawah dijalankan dari folder proyek (yang berisi `docker-compose.yml`).
+
+### Pertama kali (setup)
 
 ```bash
 cp .env.example .env          # Windows PowerShell: Copy-Item .env.example .env
 # edit .env: isi POSTGRES_PASSWORD, TWELVEDATA_API_KEY, (opsional) GROQ_API_KEY
-docker compose up -d --build
+docker compose up -d --build  # build image + jalankan semua service (pertama kali bisa 5–15 menit)
+docker compose ps             # tunggu sampai backend berstatus "healthy"
 ```
+
+Migrasi database dijalankan otomatis oleh service `backend` setiap kali start.
 
 - Dashboard: http://localhost:8080 (atau `APP_PORT` Anda)
 - Dokumentasi API (Swagger): http://localhost:8000/docs
@@ -61,9 +68,68 @@ docker compose up -d --build
 Jika port 8080/8000 sudah dipakai aplikasi lain, ubah `APP_PORT` / `BACKEND_PORT` di `.env`
 lalu `docker compose up -d`.
 
+### Pemakaian sehari-hari
+
+1. Pastikan **Docker Desktop sudah berjalan** (ikon paus di menu bar/taskbar). Bila belum,
+   buka aplikasinya; di macOS bisa `open -a Docker`. Error `Cannot connect to the Docker
+   daemon` berarti Docker Desktop belum menyala.
+2. Jalankan:
+
+```bash
+docker compose up -d          # start (tanpa build ulang, cepat)
+docker compose ps             # cek status semua service
+docker compose stop           # hentikan sementara (data tetap aman)
+docker compose down           # hentikan & hapus container (data di volume tetap aman)
+```
+
+Semua service memakai `restart: unless-stopped`, jadi otomatis hidup lagi setiap Docker
+Desktop dibuka, kecuali terakhir dihentikan dengan `stop`/`down`.
+
+### Setelah mengubah sesuatu
+
+| Yang diubah | Perintah |
+|---|---|
+| `.env` | `docker compose up -d` (container yang terdampak dibuat ulang) |
+| `config/*.yaml` | `docker compose restart backend worker` (`news_events.yaml` tanpa restart) |
+| Kode `backend/` atau `requirements.txt` | `docker compose up -d --build backend worker` |
+| Kode `frontend/` | `docker compose up -d --build frontend` |
+| `streamer/bridge.mjs` | `docker compose restart streamer` |
+| `proxy/Caddyfile` | `docker compose restart proxy` |
+| Setelah `git pull` | `docker compose up -d --build` |
+
+### Log & pemecahan masalah
+
+```bash
+docker compose logs -f backend          # log satu service (backend/worker/frontend/streamer/proxy)
+docker compose logs --tail=100 worker   # 100 baris terakhir
+docker compose exec backend sh          # masuk ke container backend
+docker compose exec postgres psql -U signalflow   # konsol database
+```
+
+- **Backend tidak healthy / restart terus**: lihat `docker compose logs backend`. Biasanya
+  `.env` belum lengkap (mis. `POSTGRES_PASSWORD` kosong) atau migrasi gagal.
+- **Port sudah dipakai** (`Ports are not available` / `address already in use`): ubah port
+  yang bentrok di `.env`. Bila Postgres/Redis lokal (mis. Homebrew) sudah memakai 5432/6379,
+  set `POSTGRES_PORT=5433` dan `REDIS_PORT=6380`. Cek pemakai port: `lsof -nP -iTCP:5432 -sTCP:LISTEN`.
+- **`network signalflow_default ... incorrect label`**: sisa network dari versi Compose lama.
+  Jalankan `docker compose down` (atau `docker network rm signalflow_default`) lalu `up -d` lagi.
+- **Grafik tidak bergerak**: cek `docker compose logs streamer` dan `TWELVEDATA_API_KEY`.
+- **Mengganti `POSTGRES_PASSWORD` setelah database dibuat** tidak berpengaruh; password
+  hanya dipakai saat volume pertama kali dibuat (lihat reset di bawah).
+
+### Reset total (hapus semua data)
+
+> ⚠️ Menghapus seluruh candle, sinyal, kalibrasi, dan pengaturan. Tidak bisa dibatalkan.
+
+```bash
+docker compose down -v        # -v ikut menghapus volume pgdata & redisdata
+docker compose up -d --build
+```
+
 ### Membuka dari iPhone (Wi-Fi yang sama)
 
-1. Cari IP laptop: PowerShell `ipconfig` → "IPv4 Address" (mis. `192.168.1.20`).
+1. Cari IP laptop: PowerShell `ipconfig` → "IPv4 Address" (mis. `192.168.1.20`);
+   di macOS `ipconfig getifaddr en0`.
 2. Di Safari iPhone buka `http://192.168.1.20:8080`.
 3. Bila tidak terbuka, izinkan port di Windows Firewall (PowerShell sebagai Administrator):
    `New-NetFirewallRule -DisplayName SignalFlow -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow`
@@ -123,7 +189,7 @@ docker compose restart backend worker
   M1–H4 dan dashboard menerimanya lewat `/ws`. Tidak memakai kuota REST. Bila paket
   dinaikkan, simbol lain otomatis ikut streaming. Matikan dengan `TWELVEDATA_STREAMING=false`.
 - **Simbol lain (GBPUSD, USDJPY di paket gratis)**: candle berjalan diperbarui setiap
-  `LIVE_REFRESH_SECONDS` (bawaan 20 detik) lewat REST, hanya saat grafiknya dibuka. Bila sisa
+  `LIVE_REFRESH_SECONDS` (bawaan 60 detik = 1 request/menit) lewat REST, hanya saat grafiknya dibuka. Bila sisa
   kuota harian ≤ `TWELVEDATA_RESERVED_DAILY` (bawaan 300), pembaruan ini dijeda agar
   analisis sinyal M15 tetap mendapat data.
 
@@ -161,11 +227,18 @@ instrumen dengan strategi aktif di [config/strategies.yaml](config/strategies.ya
 |-------|--------------|
 | BUY   | Tren H1 & H4 naik (harga & EMA50 di atas EMA200, ADX ≥ 20) + di M15 harga pullback ke EMA20 lalu ditutup di atasnya, plus RSI keluar dari zona jenuh jual (naik melewati 40) dan/atau MACD cross naik |
 | SELL  | Kebalikan BUY |
-| CLOSE | Sinyal aktif kena TP/SL, sinyal berbalik arah, momentum melemah (histogram MACD berbalik + harga menembus EMA20, atau tren H1 berbalik), atau sudah 8 jam |
+| CLOSE | Sinyal aktif kena SL / trailing stop, sinyal berbalik arah, momentum melemah (histogram MACD berbalik + harga menembus EMA20, atau tren H1 berbalik), atau sudah 8 jam |
 | WAIT  | Tidak ada setup valid (alasannya selalu ditampilkan) |
 
 - **SL** = 1.5 × ATR(14), **TP** = 3 × ATR, dan TP dilebarkan otomatis agar R:R tetap
   minimal 1:2 **setelah spread**.
+- **Trailing stop** (BUY & SELL, termasuk sinyal AI / AI semua): setelah untung 1R
+  (R = jarak SL awal), SL mengikuti harga terbaik sejak entry sejauh 0.5R, sehingga
+  keuntungan terkunci dan posisi ditutup dekat puncaknya. TP dilepas (`take_profit: false`).
+  Saat SL bergeser, dashboard menampilkan **"geser SL ke …"**: geser SL di aplikasi broker
+  dan jangan pasang TP. Atur di `trailing_stop` pada
+  [config/strategies.yaml](config/strategies.yaml). Backtest strategi aktif (EURUSD/USDJPY,
+  out-of-sample): +10.2R → +21.7R, drawdown 6.9R → 5.0R.
 - **Filter** (sinyal ditahan → WAIT): volatilitas ekstrem/terlalu sepi, candle lonjakan,
   45 menit sebelum pasar tutup Jumat, dan ±30 menit dari berita besar di
   [config/news_events.yaml](config/news_events.yaml) (bisa diedit tanpa restart).

@@ -9,6 +9,7 @@ from app.core.config import get_settings
 from app.core.instruments import get_instruments
 from app.core.redis import WORKER_HEARTBEAT_KEY, get_redis
 from app.core.timeframes import Timeframe, next_candle_close
+from app.data.providers import SwitchableProvider, get_provider
 from app.data.stream import streaming_symbols
 from app.db.session import engine
 
@@ -26,6 +27,13 @@ class HealthResponse(BaseModel):
     instruments: list[str]
     server_time: datetime
     next_m15_close: datetime
+
+
+async def active_provider_name() -> str:
+    provider = get_provider()
+    if isinstance(provider, SwitchableProvider):
+        return await provider.active_name()
+    return get_settings().data_provider
 
 
 @router.get("/live")
@@ -59,7 +67,7 @@ async def health() -> HealthResponse:
     now = datetime.now(UTC)
     return HealthResponse(
         status="ok" if db_ok and redis_ok else "degraded",
-        data_provider=get_settings().data_provider,
+        data_provider=await active_provider_name(),
         database=db_ok,
         redis=redis_ok,
         worker_last_heartbeat=heartbeat,

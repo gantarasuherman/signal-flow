@@ -8,6 +8,7 @@ from app.core.instruments import Instrument
 from app.core.timeframes import Timeframe
 from app.data.errors import ProviderConfigError, RateLimitError
 from app.data.providers.twelvedata import BASE_URL, TwelveDataProvider
+from app.data.rate_limit import RedisRateLimiter
 
 
 async def _no_sleep(_: float) -> None:
@@ -113,6 +114,29 @@ async def test_rate_limit_retried_then_raises(xauusd: Instrument) -> None:
     with pytest.raises(RateLimitError):
         await make_provider(handler).fetch_candles(xauusd, Timeframe.M15)
     assert calls == 3
+
+
+async def test_daily_quota_exhausted_stops_without_retry(xauusd: Instrument) -> None:
+    from fakeredis import FakeAsyncRedis
+
+    calls = 0
+    message = "You have run out of API credits for the day. 830 API credits were used"
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={"status": "error", "code": 429, "message": message})
+
+    limiter = RedisRateLimiter(FakeAsyncRedis(), "td", per_minute=8, per_day=800)
+    client = httpx.AsyncClient(base_url=BASE_URL, transport=httpx.MockTransport(handler))
+    provider = TwelveDataProvider("k", limiter, client=client, sleep=_no_sleep)
+    with pytest.raises(RateLimitError, match="harian"):
+        await provider.fetch_candles(xauusd, Timeframe.M15)
+    assert calls == 1 and await provider.remaining_daily_credits() == 0
+    # Request berikutnya ditolak lokal tanpa memanggil API
+    with pytest.raises(RateLimitError):
+        await provider.fetch_candles(xauusd, Timeframe.M15)
+    assert calls == 1
 
 
 async def test_server_error_then_success(xauusd: Instrument) -> None:

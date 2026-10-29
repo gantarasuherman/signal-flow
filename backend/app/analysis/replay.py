@@ -12,6 +12,7 @@ import pandas as pd
 from app.analysis.engine import step
 from app.analysis.filters import FilterConfig, volatility_block, weekend_close_block
 from app.analysis.indicators import compute_indicators
+from app.analysis.lifecycle import TrailingStopConfig
 from app.analysis.profit_lock import ProfitCloseConfig
 from app.core.instruments import Instrument
 from app.core.market_hours import candle_has_trading
@@ -45,6 +46,7 @@ def replay(
     filters: FilterConfig,
     max_hold_candles: int,
     profit_close: ProfitCloseConfig | None = None,
+    trailing: TrailingStopConfig | None = None,
     start: datetime | None = None,
 ) -> list[ReplayTrade]:
     cfg = strategy.indicator_config
@@ -88,7 +90,7 @@ def replay(
             )
             if r
         ]
-        result = step(strategy, ctx, blocked, max_hold_candles, profit_close)
+        result = step(strategy, ctx, blocked, max_hold_candles, profit_close, trailing)
 
         if result.exit and open_trade:
             open_trade.exit_time = result.exit.time

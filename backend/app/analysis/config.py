@@ -8,6 +8,7 @@ import yaml
 from pydantic import BaseModel, Field
 
 from app.analysis.filters import FilterConfig
+from app.analysis.lifecycle import TrailingStopConfig
 from app.analysis.news import NewsCalendar, YamlNewsCalendar
 from app.analysis.profit_lock import ProfitCloseConfig
 from app.core.config import get_settings
@@ -27,6 +28,7 @@ class AnalysisConfig(BaseModel):
     instruments: dict[str, InstrumentStrategy] = Field(default_factory=dict)
     max_hold_candles: int = Field(default=32, ge=1)
     profit_close: ProfitCloseConfig = Field(default_factory=ProfitCloseConfig)
+    trailing_stop: TrailingStopConfig = Field(default_factory=TrailingStopConfig)
     entry_valid_minutes: int = Field(default=45, ge=1)
     filters: FilterConfig = Field(default_factory=FilterConfig)
     # Instrumen yang mendapat sinyal AI (None = semua). Dibatasi berdasarkan hasil ai-eval.

@@ -19,59 +19,99 @@
   --color-err: var(--err);
   --color-ai: var(--ai);
   --color-brand: var(--brand);
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  --color-accent: var(--accent);
+  --color-hero: var(--hero);
+  --font-sans: var(--font-jakarta), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  /* Sudut kartu: membulat secukupnya (tidak terlalu rounded) */
+  --radius-xl: 0.625rem;
+  --radius-2xl: 0.875rem;
 }
 
-/* Tema gelap (bawaan) — ala aplikasi broker iOS */
+/* Tema gelap (bawaan): hijau tua pekat dengan aksen lime.
+   Selector tanpa :root agar bagian halaman (mis. kartu hero) bisa memakai tema ini juga. */
 :root,
-:root[data-theme="dark"] {
+[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0b0e11;
-  --panel: #141920;
-  --panel-2: #1c232c;
-  --line: #262f3a;
-  --muted: #8b95a1;
-  --fg: #e8edf2;
-  --fg-soft: #c3ccd6;
-  --buy: #16c784;
-  --sell: #ea3943;
+  --bg: #06120d;
+  --panel: #0d1f17;
+  --panel-2: #15291f;
+  --line: #1f3a2d;
+  --muted: #8ba597;
+  --fg: #edf5f0;
+  --fg-soft: #c5d6cc;
+  --buy: #2bd27a;
+  --sell: #f2555a;
   --close: #f5a524;
-  --wait: #6b7785;
+  --wait: #6e8479;
   --warn: #fcd34d;
   --ok: #6ee7b7;
   --err: #fca5a5;
   --ai: #c4b5fd;
-  --brand: #38bdf8;
-  --shadow: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 8px 24px rgb(0 0 0 / 0.25);
-  --chart-grid: #151a21;
+  --brand: #b6f01f;
+  --accent: #b6f01f;
+  --hero: #0a3224;
+  /* Kaca (glassmorphic): panel tembus pandang + blur latar */
+  --surface: rgb(13 31 23 / 0.55);
+  --surface-line: rgb(255 255 255 / 0.08);
+  --shadow: 0 1px 0 rgb(255 255 255 / 0.06) inset, 0 10px 30px rgb(0 0 0 / 0.3);
+  --glow-1: rgb(182 240 31 / 0.1);
+  --glow-2: rgb(16 140 90 / 0.22);
+  --chart-grid: #11241b;
 }
 
-/* Tema terang */
-:root[data-theme="light"] {
+/* Tema terang: latar abu-abu kehijauan, kartu putih, aksen hijau tua & lime */
+[data-theme="light"] {
   color-scheme: light;
-  --bg: #f3f5f8;
+  --bg: #f1f4f2;
   --panel: #ffffff;
-  --panel-2: #eef1f5;
-  --line: #dde3ea;
-  --muted: #64707d;
-  --fg: #0f172a;
-  --fg-soft: #334155;
-  --buy: #059669;
-  --sell: #dc2626;
-  --close: #d97706;
-  --wait: #94a3b8;
-  --warn: #92400e;
-  --ok: #065f46;
-  --err: #b91c1c;
-  --ai: #6d28d9;
-  --brand: #0284c7;
-  --shadow: 0 1px 2px rgb(15 23 42 / 0.06), 0 6px 20px rgb(15 23 42 / 0.06);
-  --chart-grid: #eef1f5;
+  --panel-2: #f1f4f2;
+  --line: #e3e8e5;
+  --muted: #6f7d76;
+  --fg: #0c1f18;
+  --fg-soft: #3a4d44;
+  --buy: #12a150;
+  --sell: #e5484d;
+  --close: #d97f00;
+  --wait: #93a39b;
+  --warn: #8a5a00;
+  --ok: #0e6b3d;
+  --err: #c42b30;
+  --ai: #6d4ae0;
+  --brand: #0b4d36;
+  --accent: #b6f01f;
+  --hero: #06291e;
+  --surface: rgb(255 255 255 / 0.62);
+  --surface-line: rgb(255 255 255 / 0.75);
+  --shadow: 0 1px 0 rgb(255 255 255 / 0.7) inset, 0 8px 28px rgb(12 31 24 / 0.08);
+  --glow-1: rgb(182 240 31 / 0.32);
+  --glow-2: rgb(16 120 80 / 0.16);
+  --chart-grid: #eef2ef;
 }
 
-html,
-body {
+/* Kartu hero: selalu hijau tua (memakai token tema gelap di dalamnya), tetap berkesan kaca */
+[data-theme="dark"].hero {
+  --panel: var(--hero);
+  --surface: rgb(8 46 33 / 0.86);
+  --surface-line: rgb(255 255 255 / 0.1);
+}
+
+/* Latar solid hanya di html; body transparan agar gradasi body::before terlihat */
+html {
   background: var(--bg);
+}
+
+/* Latar bergradasi lembut agar efek kaca terlihat; elemen fixed karena iOS Safari
+   tidak mendukung background-attachment: fixed */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(60% 45% at 8% 0%, var(--glow-1), transparent 70%),
+    radial-gradient(50% 40% at 100% 30%, var(--glow-2), transparent 70%),
+    radial-gradient(60% 45% at 30% 100%, var(--glow-1), transparent 70%);
 }
 
 body {
@@ -83,9 +123,11 @@ body {
 
 /* Permukaan kartu: latar panel + garis + bayangan halus sesuai tema */
 @utility surface {
-  background: var(--panel);
-  border: 1px solid var(--line);
+  background: var(--surface);
+  border: 1px solid var(--surface-line);
   box-shadow: var(--shadow);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  backdrop-filter: blur(18px) saturate(150%);
 }
 
 .tabular {

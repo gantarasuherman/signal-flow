@@ -1,5 +1,6 @@
 import json
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import timedelta
 from typing import Any
 
@@ -11,6 +12,7 @@ import pytest
 from app.analysis.groq_client import GroqClient
 from app.analysis.indicators import compute_indicators
 from app.core.instruments import Instrument
+from app.core.timeframes import Timeframe
 from app.strategies import Action, ActiveSignalView, StrategyContext, create_strategy
 from app.strategies.ai_groq import AiAnswer, AiGroqStrategy, build_prompt, combine_votes
 from app.strategies.features import Setup, potential_setup, timeframe_facts
@@ -104,6 +106,15 @@ def test_prompt_contains_facts_setup_and_position(ctx: StrategyContext) -> None:
     assert "H1: tren naik; urutan harga > EMA20 > EMA50 > EMA200" in prompt
     assert "M15 last 12 candles" in prompt
     assert len(prompt) < 4000  # ringkas → hemat token Groq
+
+
+def test_prompt_uses_chosen_entry_timeframe(ctx: StrategyContext) -> None:
+    params = AiGroqStrategy().params
+    m5 = build_prompt(replace(ctx, timeframe=Timeframe.M5), params)
+    assert "Entry timeframe: M5." in m5 and "M5 last 12 candles" in m5
+    assert "M15" not in m5
+    h1 = build_prompt(replace(ctx, timeframe=Timeframe.H1), params)
+    assert h1.count("\nH1: ") == 1  # frame entry H1 tidak diulang sebagai konteks
 
 
 # ---------- penyaring calon setup ----------

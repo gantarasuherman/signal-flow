@@ -1,6 +1,6 @@
 """Strategi AI (eksperimen): LLM Groq menilai setup yang sudah disaring kode.
 
-Alur tiap candle M15 (versi 2):
+Alur per analisis (versi 2). Frame entry = M15 bawaan, atau M1–H4 pilihan pengguna:
 1. Kode menghitung fakta pasar per timeframe (tren, urutan EMA, zona RSI, MACD, ADX, posisi
    Bollinger, swing high/low) — LLM tidak perlu menebak dari deretan angka.
 2. Tanpa posisi: AI hanya dipanggil bila kode melihat CALON SETUP searah tren (pullback ke
@@ -37,20 +37,22 @@ from app.strategies.features import Setup, SetupFilter, potential_setup, timefra
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You are a disciplined forex/gold technical analyst reviewing ONE candidate
-trade on the M15 timeframe. All facts (trend, EMA order, RSI zone, MACD, ADX, Bollinger
-position, swing levels, candlestick patterns "pola") were computed by code and are
-correct — trust them, do not re-derive them from raw prices.
+trade on the entry timeframe stated in the prompt. All facts (trend, EMA order, RSI zone,
+MACD, ADX, Bollinger position, swing levels, candlestick patterns "pola") were computed by
+code and are correct — trust them, do not re-derive them from raw prices.
 
 Rules:
 - Without an open position answer "BUY", "SELL" or "WAIT". A candidate setup direction is
-  given; confirm it only if the facts support it (trend alignment H4/H1/M15, momentum
+  given; confirm it only if the facts support it (trend alignment H4/H1/entry timeframe, momentum
   agreeing, room to the next swing level, not overextended). Otherwise WAIT. Never trade
-  against the H1 or H4 trend. A candlestick pattern against the trade (e.g. Evening Star,
+  against the H1 or H4 trend. Size stops and targets for the entry timeframe (e.g. M1/M5 =
+  short scalp, H4 = multi-day swing). A candlestick pattern against the trade (e.g. Evening Star,
   Shooting Star, Three Black Crows for a BUY) or a Spinning Top is a reason to WAIT; a pattern
   in the trade direction (e.g. Hammer, Morning Star for a BUY) supports it.
 - With an open position answer "HOLD", "CLOSE" (exit early because momentum clearly turned
   against the position) or the opposite direction (reverse). Do not re-enter the same side.
-- "sl_atr": stop-loss distance in multiples of M15 ATR (1.0-3.0), e.g. beyond the swing level.
+- "sl_atr": stop-loss distance in multiples of the entry-timeframe ATR (1.0-3.0), e.g.
+  beyond the swing level.
 - "tp_rr": take-profit as reward/risk multiple (>= 2.0).
 - "confidence": 0.0-1.0, honest; below 0.6 means you would not take the trade.
 - "reasons": 2-4 short reasons in simple Indonesian (bahasa Indonesia) using only the facts.
@@ -97,7 +99,9 @@ class AiAnswer(BaseModel):
 def build_prompt(ctx: StrategyContext, params: AiGroqParams, setup: Setup | None = None) -> str:
     inst = ctx.instrument
     d = inst.digits
+    tf = ctx.timeframe
     lines = [
+        f"Entry timeframe: {tf}.",
         f"Instrument: {inst.symbol} ({inst.name}), pip size {inst.pip_size}, "
         f"spread ~{ctx.spread_price / inst.pip_size:.1f} pips, "
         f"time (UTC) {ctx.now:%Y-%m-%d %H:%M}.",
@@ -110,7 +114,7 @@ def build_prompt(ctx: StrategyContext, params: AiGroqParams, setup: Setup | None
         bars = int((ctx.m15.index > a.candle_time).sum())
         lines.append(
             f"OPEN POSITION: {a.action} entry {a.entry}, SL {a.stop_loss}, TP {a.take_profit}, "
-            f"open {bars} M15 candles, unrealized {pnl:+.1f} pips."
+            f"open {bars} {tf} candles, unrealized {pnl:+.1f} pips."
         )
     else:
         lines.append("OPEN POSITION: none.")
@@ -118,11 +122,12 @@ def build_prompt(ctx: StrategyContext, params: AiGroqParams, setup: Setup | None
         side = "BUY" if setup.direction == 1 else "SELL"
         lines.append(f"CANDIDATE SETUP (code): {side} — {setup.note}.")
 
-    for label, df in (("H4", ctx.h4), ("H1", ctx.h1), ("M15", ctx.m15)):
+    frames = {"H4": ctx.h4, "H1": ctx.h1, tf.value: ctx.m15}  # entry H1/H4: tanpa duplikat
+    for label, df in frames.items():
         facts = timeframe_facts(df, d)
         lines.append(f"{label}: " + "; ".join(f"{k} {v}" for k, v in facts.items()))
 
-    lines.append(f"M15 last {params.m15_candles} candles (old→new) open/high/low/close:")
+    lines.append(f"{tf} last {params.m15_candles} candles (old→new) open/high/low/close:")
     for _, row in ctx.m15.tail(params.m15_candles).iterrows():
         lines.append(" ".join(f"{row[k]:.{d}f}" for k in ("open", "high", "low", "close")))
     return "\n".join(lines)

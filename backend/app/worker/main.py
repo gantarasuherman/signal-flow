@@ -26,7 +26,8 @@ from app.data.stream import PriceStreamer
 from app.db.session import SessionLocal, engine
 from app.repositories import signals as signals_repo
 from app.services.backtest_jobs import fail_stale_runs, process_next_backtest
-from app.services.candle_sync import sync_candles
+from app.services.candle_sync import refresh_if_stale, sync_candles
+from app.services.pattern_stats import get_pattern_stats
 from app.services.signal_engine import analyze_instrument, write_static_snapshot
 from app.services.watch import WATCH_CHANNEL, watch_all_enabled, watched_symbols
 from app.strategies import create_strategy
@@ -176,11 +177,21 @@ async def run_ai_cycle(symbols: set[str] | None = None) -> None:
                 if active is None:
                     continue
                 try:
+                    # Posisi AI M1/M5: candle-nya tidak disinkron siklus M15, ambil dulu
+                    now = datetime.now(UTC)
+                    await refresh_if_stale(
+                        session,
+                        get_provider(),
+                        get_redis(),
+                        instrument,
+                        Timeframe(active.timeframe),
+                        now,
+                    )
                     snapshot = await analyze_instrument(
                         session,
                         get_redis(),
                         instrument,
-                        datetime.now(UTC),
+                        now,
                         strategy=create_strategy("ai_groq", params),
                     )
                     logger.info("%s [AI pasif]: %s", instrument.symbol, snapshot["action"])
@@ -219,6 +230,18 @@ async def bootstrap() -> None:
     start_ai_cycle(targets)
 
 
+async def warm_pattern_stats() -> None:
+    """Hitung ulang peluang historis pola (M15/H1/H4) agar panel pola tidak menunggu ±10 detik.
+    M1/M5 dihitung saat dibuka karena historinya pendek."""
+    async with SessionLocal() as session:
+        for symbol in get_instruments():
+            for tf in (Timeframe.M15, Timeframe.H1, Timeframe.H4):
+                try:
+                    await get_pattern_stats(session, get_redis(), symbol, tf, refresh=True)
+                except Exception:
+                    logger.exception("%s %s: gagal menghitung peluang pola", symbol, tf)
+
+
 async def heartbeat() -> None:
     await get_redis().set(WORKER_HEARTBEAT_KEY, datetime.now(UTC).isoformat())
 
@@ -237,6 +260,15 @@ def build_scheduler() -> AsyncIOScheduler:
         misfire_grace_time=120,
     )
     scheduler.add_job(heartbeat, "interval", seconds=30, id="heartbeat")
+    scheduler.add_job(
+        warm_pattern_stats,
+        "interval",
+        hours=6,
+        id="pattern_stats",
+        next_run_time=datetime.now(UTC),  # juga langsung saat worker mulai
+        max_instances=1,
+        coalesce=True,
+    )
     # Backtest dari dashboard: satu per satu, tidak tumpang tindih
     scheduler.add_job(
         process_next_backtest,
@@ -271,7 +303,8 @@ async def main() -> None:
     watch_task = asyncio.create_task(listen_watch())
     stream_task: asyncio.Task[None] | None = None
     api_key = settings.twelvedata_api_key.get_secret_value()
-    if settings.data_provider == "twelvedata" and settings.twelvedata_streaming and api_key:
+    # Streaming Twelve Data tidak memakai kredit REST: tetap jalan walau Tiingo yang dipilih
+    if settings.data_provider != "mock" and settings.twelvedata_streaming and api_key:
         streamer = PriceStreamer(get_redis(), get_instruments())
         stream_task = asyncio.create_task(streamer.run())
 

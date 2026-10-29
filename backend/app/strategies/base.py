@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from app.analysis.indicators import IndicatorConfig
 from app.core.instruments import Instrument
+from app.core.timeframes import Timeframe
 
 
 class Action(StrEnum):
@@ -42,7 +43,10 @@ class ActiveSignalView:
 @dataclass
 class StrategyContext:
     """Data untuk satu evaluasi. DataFrame berindeks open_time (UTC), berisi kolom OHLC
-    + indikator, dan hanya memuat candle yang SUDAH tutup."""
+    + indikator, dan hanya memuat candle yang SUDAH tutup.
+
+    `m15` adalah frame entry: candle `timeframe` (M15 untuk strategi aturan; analisis AI
+    bisa memakai M1–H4). `h1` & `h4` selalu konteks tren."""
 
     instrument: Instrument
     now: datetime
@@ -51,6 +55,7 @@ class StrategyContext:
     h4: pd.DataFrame
     spread_price: float
     active: ActiveSignalView | None = None
+    timeframe: Timeframe = Timeframe.M15
 
 
 @dataclass

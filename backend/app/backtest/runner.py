@@ -149,6 +149,7 @@ def _replay_trades(
         filters=cfg.filters,
         max_hold_candles=cfg.max_hold_candles,
         profit_close=cfg.profit_close,
+        trailing=cfg.trailing_stop,
         start=start,
     )
     trades = to_trade_results(raw, data.instrument, data.spread_pips, data.slippage_pips)

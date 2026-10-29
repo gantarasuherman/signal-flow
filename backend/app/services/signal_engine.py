@@ -44,7 +44,13 @@ logger = logging.getLogger(__name__)
 ANALYSIS_KEY = "analysis:latest:{symbol}"  # sumber "rule"; sumber "ai" diberi akhiran ":ai"
 EVENTS_CHANNEL = "signals:events"
 ANALYSIS_CHANNEL = "analysis:updates"
-FRAME_LIMIT = {Timeframe.M15: 400, Timeframe.H1: 300, Timeframe.H4: 300}
+FRAME_LIMIT = {
+    Timeframe.M1: 400,
+    Timeframe.M5: 400,
+    Timeframe.M15: 400,
+    Timeframe.H1: 300,
+    Timeframe.H4: 300,
+}
 
 
 def candles_to_frame(rows: list[Candle]) -> pd.DataFrame:
@@ -76,21 +82,38 @@ def to_view(signal: Signal) -> ActiveSignalView:
     )
 
 
-async def _load_frames(session: AsyncSession, symbol: str) -> dict[Timeframe, pd.DataFrame]:
+def analysis_timeframes(timeframe: Timeframe) -> set[Timeframe]:
+    """Frame entry + konteks tren H1 & H4."""
+    return {timeframe, Timeframe.H1, Timeframe.H4}
+
+
+async def resolve_timeframe(
+    session: AsyncSession, symbol: str, source: str, requested: Timeframe
+) -> Timeframe:
+    """Posisi aktif selalu dipantau di timeframe tempat ia dibuka."""
+    active = await signals_repo.get_active_for_symbol(session, symbol, source=source)
+    return Timeframe(active.timeframe) if active else requested
+
+
+async def _load_frames(
+    session: AsyncSession, symbol: str, timeframes: set[Timeframe]
+) -> dict[Timeframe, pd.DataFrame]:
     frames = {}
-    for tf, limit in FRAME_LIMIT.items():
-        rows = await candles_repo.get_candles(session, symbol, tf, limit=limit)
+    for tf in timeframes:
+        rows = await candles_repo.get_candles(session, symbol, tf, limit=FRAME_LIMIT[tf])
         frames[tf] = candles_to_frame(rows)
     return frames
 
 
-def _signal_facts(instrument: Instrument, decision: Decision) -> dict[str, Any]:
+def _signal_facts(
+    instrument: Instrument, decision: Decision, timeframe: Timeframe
+) -> dict[str, Any]:
     assert decision.entry is not None and decision.stop_loss is not None
     assert decision.take_profit is not None
     return {
         "instrumen": f"{instrument.symbol} ({instrument.name})",
         "aksi": str(decision.action),
-        "timeframe": "M15 (konfirmasi tren H1 & H4)",
+        "timeframe": f"{timeframe} (konfirmasi tren H1 & H4)",
         "entry": decision.entry,
         "stop_loss": decision.stop_loss,
         "take_profit": decision.take_profit,
@@ -169,7 +192,9 @@ async def analyze_instrument(
     cfg: AnalysisConfig | None = None,
     narrator: Narrator | None = None,
     calendar: NewsCalendar | None = None,
+    timeframe: Timeframe = Timeframe.M15,
 ) -> dict[str, Any]:
+    """`timeframe` = frame entry yang diminta; posisi aktif tetap memakai timeframe-nya."""
     strategy = strategy or get_strategy_for(instrument.symbol)
     cfg = cfg or get_analysis_config()
     narrator = narrator or get_narrator()
@@ -180,12 +205,15 @@ async def analyze_instrument(
     # Sinyal aktif dari strategi mana pun dengan sumber yang sama tetap dipantau
     # (mis. setelah strategi aturan diganti); sinyal AI & aturan dilacak terpisah.
     active_row = await signals_repo.get_active_for_symbol(session, symbol, source=source)
+    if active_row:
+        timeframe = Timeframe(active_row.timeframe)
     snapshot: dict[str, Any] = {
         "symbol": symbol,
         "strategy": strategy.name,
         "source": source,
         "analyzed_at": now.isoformat(),
-        "next_candle_close": next_candle_close(now, Timeframe.M15).isoformat(),
+        "timeframe": timeframe.value,
+        "next_candle_close": next_candle_close(now, timeframe).isoformat(),
         "market_open": is_market_open(instrument.asset_class, now),
         "action": active_row.action if active_row else Action.WAIT.value,
         "is_new_event": False,
@@ -207,16 +235,17 @@ async def analyze_instrument(
     if not snapshot["market_open"]:
         return await finish(["Pasar sedang tutup."])
 
-    frames = await _load_frames(session, symbol)
-    m15 = frames[Timeframe.M15]
-    expected = last_expected_candle_open(instrument.asset_class, now, Timeframe.M15)
+    frames = await _load_frames(session, symbol, analysis_timeframes(timeframe))
+    m15 = frames[timeframe]
+    expected = last_expected_candle_open(instrument.asset_class, now, timeframe)
     if m15.empty or (expected is not None and m15.index[-1] < expected):
-        return await finish(["Menunggu data candle M15 terbaru dari provider."])
+        return await finish([f"Menunggu data candle {timeframe} terbaru dari provider."])
     if any(len(df) < strategy.min_bars for df in frames.values()):
         return await finish(["Histori candle belum cukup untuk menghitung indikator."])
 
     icfg = strategy.indicator_config
-    m15, h1, h4 = (compute_indicators(frames[tf], icfg) for tf in FRAME_LIMIT)
+    ind = {tf: compute_indicators(df, icfg) for tf, df in frames.items()}
+    m15, h1, h4 = ind[timeframe], ind[Timeframe.H1], ind[Timeframe.H4]
     snapshot["candle_time"] = m15.index[-1].isoformat()
     snapshot["last_close"] = float(m15["close"].iloc[-1])
 
@@ -234,10 +263,11 @@ async def analyze_instrument(
         h4=h4,
         spread_price=spread_pips * instrument.pip_size,
         active=to_view(active_row) if active_row else None,
+        timeframe=timeframe,
     )
     blocked = await run_filters(m15, instrument, now, cfg.filters, calendar)
     await strategy.prepare(ctx)
-    result = step(strategy, ctx, blocked, cfg.max_hold_candles, cfg.profit_close)
+    result = step(strategy, ctx, blocked, cfg.max_hold_candles, cfg.profit_close, cfg.trailing_stop)
     snapshot["filters"] = blocked
     snapshot["details"] = result.decision.details
 
@@ -257,7 +287,7 @@ async def analyze_instrument(
     ):
         signal = Signal(
             symbol=symbol,
-            timeframe=Timeframe.M15.value,
+            timeframe=timeframe.value,
             strategy=strategy.name,
             action=entry.action.value,
             candle_time=candle_time,
@@ -269,12 +299,16 @@ async def analyze_instrument(
             spread_pips=spread_pips,
             confidence=entry.confidence,
             confidence_label=confidence_label(entry.confidence),
+            # entry_valid_minutes berlaku untuk M15; timeframe lain diskalakan sebanding
             entry_expires_at=candle_time
-            + Timeframe.M15.delta
-            + timedelta(minutes=cfg.entry_valid_minutes),
+            + timeframe.delta
+            + timedelta(minutes=cfg.entry_valid_minutes * timeframe.minutes / 15),
             reasons=entry.reasons,
             reason_text=await _describe(
-                narrator, strategy.narrate, _signal_facts(instrument, entry), entry.reasons
+                narrator,
+                strategy.narrate,
+                _signal_facts(instrument, entry, timeframe),
+                entry.reasons,
             ),
             details=entry.details,
             status="ACTIVE",

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { Disclaimer } from "@/components/Disclaimer";
+import { PatternOddsPanel } from "@/components/PatternOddsPanel";
 
 // ---------- gambar candle mini ----------
 
@@ -441,6 +442,7 @@ export default function GuidePage() {
               konfirmasi tambahan, bukan alasan utama.
             </p>
           </Item>
+          <PatternOddsPanel />
           <PatternCards />
         </Section>
 

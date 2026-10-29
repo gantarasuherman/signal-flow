@@ -1,9 +1,12 @@
 import type { Metadata, Viewport } from "next";
+import { Plus_Jakarta_Sans } from "next/font/google";
 import { BottomNav } from "@/components/BottomNav";
 import { PwaRegister } from "@/components/PwaRegister";
 import { RealtimeProvider } from "@/lib/realtime";
 import { THEME_INIT_SCRIPT, ThemeProvider } from "@/lib/theme";
 import "./globals.css";
+
+const jakarta = Plus_Jakarta_Sans({ subsets: ["latin"], variable: "--font-jakarta", display: "swap" });
 
 export const metadata: Metadata = {
   title: "SignalFlow",
@@ -20,12 +23,15 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: "cover",
-  themeColor: "#0b0e11",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f1f4f2" },
+    { media: "(prefers-color-scheme: dark)", color: "#06120d" },
+  ],
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="id" data-theme="dark" suppressHydrationWarning>
+    <html lang="id" data-theme="dark" className={jakarta.variable} suppressHydrationWarning>
       <head>
         {/* Pasang tema sebelum halaman tampil agar tidak berkedip */}
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
