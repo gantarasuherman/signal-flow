@@ -46,6 +46,10 @@ async def run_ai_analysis(
     session: SessionDep,
     provider: ProviderDep,
     symbol: Annotated[str, Query(examples=["XAUUSD"])],
+    votes: Annotated[
+        int | None,
+        Query(ge=1, le=5, description="Jumlah suara AI; 1 = cepat (analisis 4 sekaligus)"),
+    ] = None,
 ) -> AiAnalysisResponse:
     """Minta keputusan AI Groq sekarang: BUY / SELL / WAIT, atau HOLD / CLOSE untuk posisi
     AI yang sedang aktif. Butuh ±10–30 detik (3 suara AI)."""
@@ -73,6 +77,8 @@ async def run_ai_analysis(
         cfg = get_analysis_config()
         # Atas permintaan pengguna: AI selalu ditanya (tanpa saringan calon setup)
         params = {**cfg.strategies.get("ai_groq", {}), "prefilter": False, "passive": False}
+        if votes is not None:
+            params["votes"] = votes
         await analyze_instrument(
             session, redis, instrument, now, strategy=create_strategy("ai_groq", params)
         )

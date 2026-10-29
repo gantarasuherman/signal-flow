@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
+import { AllInstrumentsBar } from "@/components/AllInstrumentsBar";
 import { AppHeader } from "@/components/AppHeader";
 import { ChartMonitor } from "@/components/ChartMonitor";
 import { useDashboard } from "@/lib/hooks";
@@ -13,7 +14,7 @@ const FALLBACK = "XAUUSD";
 function Monitor() {
   const router = useRouter();
   const params = useSearchParams();
-  const { data, error } = useDashboard();
+  const { data, error, reload } = useDashboard();
   const [symbol, setSymbol] = useState<string | null>(null);
 
   // Instrumen terpilih: ?s= di URL → pilihan terakhir → XAUUSD
@@ -85,6 +86,13 @@ function Monitor() {
             );
           })}
         </div>
+        {cards.length > 0 && (
+          <AllInstrumentsBar
+            symbols={cards.map((c) => c.instrument.symbol)}
+            onSelect={select}
+            onChanged={() => void reload()}
+          />
+        )}
         {error && !data && <p className="text-sm text-sell">Gagal memuat data: {error}</p>}
         {symbol && <ChartMonitor key={symbol} symbol={symbol} />}
       </main>

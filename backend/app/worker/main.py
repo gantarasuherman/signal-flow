@@ -28,7 +28,7 @@ from app.repositories import signals as signals_repo
 from app.services.backtest_jobs import fail_stale_runs, process_next_backtest
 from app.services.candle_sync import sync_candles
 from app.services.signal_engine import analyze_instrument, write_static_snapshot
-from app.services.watch import WATCH_CHANNEL, watched_symbols
+from app.services.watch import WATCH_CHANNEL, watch_all_enabled, watched_symbols
 from app.strategies import create_strategy
 
 logger = logging.getLogger("worker")
@@ -96,12 +96,15 @@ async def run_analysis_cycle() -> None:
 
 async def analysis_targets() -> set[str]:
     """Instrumen yang dianalisis: yang sedang dibuka di dashboard + yang masih punya posisi
-    aktif (agar CLOSE/TP/SL tidak terlewat). Semua bila ANALYZE_WATCHED_ONLY=false."""
+    aktif (agar CLOSE/TP/SL tidak terlewat). Semua bila ANALYZE_WATCHED_ONLY=false atau
+    pengguna menyalakan "Pantau keempatnya"."""
     symbols = sorted(get_instruments())
     if not get_settings().analyze_watched_only:
         return set(symbols)
     targets = await watched_symbols(get_redis(), symbols)
     async with SessionLocal() as session:
+        if await watch_all_enabled(session):
+            return set(symbols)
         for symbol in symbols:
             if await signals_repo.get_active_for_symbol(session, symbol, source=None):
                 targets.add(symbol)

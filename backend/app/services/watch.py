@@ -9,6 +9,9 @@ tahu lewat channel `watch:start` agar langsung menganalisis tanpa menunggu candl
 import json
 
 from redis.asyncio import Redis
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.repositories import app_settings
 
 WATCH_KEY = "watch:{symbol}"
 WATCH_CHANNEL = "watch:start"
@@ -31,3 +34,24 @@ async def watched_symbols(redis: Redis, symbols: list[str]) -> set[str]:
         return set()
     flags = await redis.mget([WATCH_KEY.format(symbol=s) for s in symbols])
     return {s for s, flag in zip(symbols, flags, strict=True) if flag}
+
+
+# ---------- pilihan "Pantau keempatnya" ----------
+
+WATCH_ALL_SETTING = "watch_all"
+
+
+async def watch_all_enabled(session: AsyncSession) -> bool:
+    """True bila pengguna memilih menganalisis SEMUA instrumen (bukan hanya yang dibuka)."""
+    return bool(await app_settings.get_value(session, WATCH_ALL_SETTING))
+
+
+async def set_watch_all(
+    session: AsyncSession, redis: Redis, enabled: bool, symbols: list[str]
+) -> None:
+    await app_settings.set_value(session, WATCH_ALL_SETTING, enabled)
+    await session.commit()
+    if enabled:
+        # Minta worker langsung menganalisis semua instrumen tanpa menunggu candle berikutnya
+        for symbol in symbols:
+            await redis.publish(WATCH_CHANNEL, json.dumps({"symbol": symbol}))

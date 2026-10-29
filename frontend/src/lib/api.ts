@@ -82,15 +82,17 @@ export const endpoints = {
     api<InstrumentOut>(`/instruments/${symbol}/calibration`, { method: "DELETE" }),
   risk: () => api<RiskPrefs>("/settings/risk"),
   saveRisk: (prefs: RiskPrefs) => api<RiskPrefs>("/settings/risk", json("PUT", prefs)),
+  watchAll: () => api<{ enabled: boolean }>("/settings/watch-all"),
+  setWatchAll: (enabled: boolean) => api<{ enabled: boolean }>("/settings/watch-all", json("PUT", { enabled })),
   health: () => api<Health>("/health"),
   stats: (days: number, source: Source = "rule") => api<LiveStats>(`/stats?days=${days}&source=${source}`),
   backtests: () => api<BacktestRun[]>("/backtests"),
   backtest: (id: number) => api<BacktestRun>(`/backtests/${id}`),
   startBacktest: (body: Partial<BacktestRequest>) => api<BacktestRun>("/backtests", json("POST", body)),
   strategyStatus: () => api<StrategyStatus[]>("/strategy/status"),
-  runAi: (symbol: string) =>
+  runAi: (symbol: string, votes?: number) =>
     api<{ card: InstrumentCard; warning: string | null; cooldown_seconds: number }>(
-      `/analysis/ai?symbol=${encodeURIComponent(symbol)}`,
+      `/analysis/ai?symbol=${encodeURIComponent(symbol)}${votes ? `&votes=${votes}` : ""}`,
       { method: "POST" },
     ),
   aiWarning: (symbol: string) =>
