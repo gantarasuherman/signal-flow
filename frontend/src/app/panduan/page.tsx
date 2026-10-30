@@ -261,7 +261,186 @@ const BIAS_STYLE: Record<Bias, { label: string; className: string }> = {
 
 // ---------- tata letak ----------
 
+/** Istilah dijelaskan untuk orang yang belum pernah trading: arti, perumpamaan, contoh. */
+const TERMS: { term: string; short: string; plain: string; analogy: string; example?: string }[] = [
+  {
+    term: "Forex / trading",
+    short: "Jual-beli mata uang",
+    plain: "Membeli suatu mata uang atau emas saat harganya dianggap akan naik, lalu menjualnya saat harga lebih tinggi (atau sebaliknya).",
+    analogy: "Seperti pedagang yang membeli dolar di money changer saat murah, lalu menukarnya kembali saat dolar mahal.",
+  },
+  {
+    term: "Pair (pasangan)",
+    short: "EURUSD, USDJPY, XAUUSD",
+    plain: "Harga selalu berupa perbandingan dua hal. EURUSD = berapa dolar AS untuk 1 euro. XAUUSD = berapa dolar untuk 1 ons emas.",
+    analogy: "Seperti papan kurs di bank: '1 USD = Rp16.000'.",
+    example: "EURUSD 1,1150 artinya 1 euro = 1,1150 dolar.",
+  },
+  {
+    term: "BUY (beli / long)",
+    short: "Untung bila harga NAIK",
+    plain: "Anda membeli sekarang dan berharap harga naik. Keuntungan = selisih harga jual nanti dikurangi harga beli sekarang.",
+    analogy: "Membeli emas Rp1 juta hari ini, lalu menjualnya Rp1,1 juta minggu depan.",
+  },
+  {
+    term: "SELL (jual / short)",
+    short: "Untung bila harga TURUN",
+    plain: "Di forex Anda bisa menjual dulu (tanpa memiliki), lalu membeli kembali nanti. Bila harga turun, Anda membeli kembali lebih murah dan selisihnya menjadi untung.",
+    analogy: "Seperti menerima pesanan barang Rp100 ribu hari ini, lalu membelinya dari pemasok besok seharga Rp90 ribu: untung Rp10 ribu.",
+  },
+  {
+    term: "Entry",
+    short: "Harga saat Anda masuk",
+    plain: "Harga ketika order BUY/SELL dibuka. Semua untung/rugi dihitung dari titik ini.",
+    analogy: "Harga beli yang tertulis di struk.",
+  },
+  {
+    term: "Stop Loss (SL)",
+    short: "Batas rugi otomatis",
+    plain: "Harga yang Anda tetapkan untuk menutup posisi secara otomatis bila harga bergerak melawan Anda. Tujuannya membatasi kerugian agar tidak membesar.",
+    analogy: "Seperti rem darurat atau sekring listrik: saat keadaan memburuk, aliran diputus sebelum terjadi kerusakan besar. Atau seperti berkata pada diri sendiri: 'Kalau harga emas turun sampai Rp950 ribu, saya jual saja, ruginya cukup Rp50 ribu.'",
+    example: "BUY EURUSD di 1,1150 dengan SL 1,1130 → bila harga turun ke 1,1130, posisi tertutup sendiri dengan rugi 20 pip.",
+  },
+  {
+    term: "Take Profit (TP)",
+    short: "Target untung otomatis",
+    plain: "Harga yang Anda tetapkan untuk menutup posisi secara otomatis saat untung sudah sesuai target.",
+    analogy: "Seperti pedagang yang memasang harga jual di etalase: begitu ada pembeli di harga itu, barang langsung terjual dan untung dikantongi.",
+    example: "BUY di 1,1150 dengan TP 1,1190 → bila harga naik ke 1,1190, posisi tertutup dengan untung 40 pip.",
+  },
+  {
+    term: "CLOSE",
+    short: "Menutup posisi sekarang",
+    plain: "Mengakhiri posisi yang sedang terbuka secara manual, di harga saat ini, tanpa menunggu SL atau TP.",
+    analogy: "Turun dari bus sebelum halte tujuan karena jalannya ternyata berbelok.",
+  },
+  {
+    term: "WAIT",
+    short: "Tunggu, jangan masuk",
+    plain: "Belum ada peluang yang cukup bagus. Tidak membuka posisi juga merupakan keputusan yang baik.",
+    analogy: "Pemancing yang menunggu ikan menggigit, bukan menarik pancing setiap saat.",
+  },
+  {
+    term: "Pip",
+    short: "Satuan gerak harga",
+    plain: "Ukuran kecil perubahan harga. EURUSD/GBPUSD: 1 pip = 0,0001. USDJPY: 1 pip = 0,01. Untung dan rugi biasanya dihitung dalam pip.",
+    analogy: "Seperti 'sen' pada rupiah atau 'cm' pada meteran: satuan untuk mengukur jarak gerak harga.",
+    example: "EURUSD naik dari 1,1150 ke 1,1170 = naik 20 pip.",
+  },
+  {
+    term: "Lot",
+    short: "Besar kecilnya posisi",
+    plain: "Menentukan berapa uang per pip. Pada EURUSD, 1 lot ≈ $10 per pip, 0,1 lot ≈ $1 per pip, 0,01 lot ≈ $0,10 per pip.",
+    analogy: "Seperti membeli 1 kg atau 1 karung beras: harganya naik sama, tetapi untung/rugi karung jauh lebih besar.",
+    example: "Rugi 20 pip dengan 0,05 lot ≈ $10. Dengan 0,5 lot ≈ $100.",
+  },
+  {
+    term: "Spread",
+    short: "Biaya setiap order",
+    plain: "Selisih harga beli (ask) dan harga jual (bid) di broker. Karena itu posisi baru selalu dimulai sedikit minus.",
+    analogy: "Money changer membeli dolar Rp15.900 tetapi menjualnya Rp16.000. Selisih Rp100 itu keuntungan mereka (biaya Anda).",
+  },
+  {
+    term: "Leverage & margin",
+    short: "Modal pinjaman dari broker",
+    plain: "Broker mengizinkan posisi yang jauh lebih besar dari modal Anda. Untung bisa besar, tetapi rugi juga ikut membesar. Margin = uang jaminan yang 'ditahan' selama posisi terbuka.",
+    analogy: "Seperti DP rumah: dengan DP kecil Anda mengendalikan rumah besar, tetapi bila nilainya turun, kerugian dihitung dari harga rumah, bukan dari DP.",
+  },
+  {
+    term: "Risk:Reward (R:R)",
+    short: "Perbandingan rugi vs untung",
+    plain: "Membandingkan jarak SL (risiko) dengan jarak TP (hadiah). R:R 1:2 = berani rugi 1 untuk peluang untung 2.",
+    analogy: "Bertaruh Rp10 ribu untuk peluang mendapat Rp20 ribu.",
+    example: "SL 20 pip, TP 40 pip → R:R 1:2. Menang 4 dari 10 kali saja sudah untung: (4×40) − (6×20) = +40 pip.",
+  },
+  {
+    term: "R",
+    short: "Satuan 'satu kali risiko'",
+    plain: "1R = besar kerugian bila kena SL. Hasil +2R artinya untung dua kali lipat dari yang Anda pertaruhkan.",
+    analogy: "Seperti menghitung dalam 'jatah taruhan': menang 2 jatah, kalah 1 jatah.",
+  },
+  {
+    term: "Candle (lilin)",
+    short: "Ringkasan harga satu periode",
+    plain: "Satu batang di grafik yang menunjukkan harga pembukaan, penutupan, tertinggi, dan terendah dalam periode tertentu. Hijau = harga naik, merah = turun.",
+    analogy: "Seperti rapor harian harga: dibuka di mana, ditutup di mana, paling tinggi dan paling rendah ke mana.",
+  },
+  {
+    term: "Timeframe (M15, H1, H4)",
+    short: "Lama satu candle",
+    plain: "M15 = satu candle mewakili 15 menit, H1 = 1 jam, H4 = 4 jam. Timeframe besar menunjukkan gambaran besar.",
+    analogy: "Seperti peta: H4 adalah peta provinsi, H1 peta kota, M15 peta jalan di sekitar rumah.",
+  },
+  {
+    term: "Tren",
+    short: "Arah umum harga",
+    plain: "Tren naik = harga cenderung membuat puncak dan lembah yang makin tinggi. Tren turun sebaliknya.",
+    analogy: "Seperti arus sungai: berenang searah arus jauh lebih mudah daripada melawannya.",
+  },
+  {
+    term: "Support & resistance",
+    short: "Lantai dan atap harga",
+    plain: "Support = area di bawah tempat harga sering berhenti turun dan memantul. Resistance = area di atas tempat harga sering berhenti naik.",
+    analogy: "Seperti bola yang dipantulkan di dalam ruangan: lantai (support) dan langit-langit (resistance).",
+  },
+  {
+    term: "Pullback",
+    short: "Mundur sejenak dalam tren",
+    plain: "Harga bergerak melawan tren sebentar sebelum melanjutkan arah semula. Sering menjadi tempat masuk yang lebih murah.",
+    analogy: "Seperti orang yang mengambil ancang-ancang mundur sebelum melompat ke depan.",
+  },
+  {
+    term: "Breakout",
+    short: "Harga menembus batas",
+    plain: "Harga keluar dari rentang yang sebelumnya membatasi (menembus atap atau lantai).",
+    analogy: "Air yang akhirnya meluap melewati tanggul.",
+  },
+  {
+    term: "Volatilitas",
+    short: "Seberapa liar harga bergerak",
+    plain: "Volatilitas tinggi = harga bergerak cepat dan jauh; rendah = tenang.",
+    analogy: "Seperti cuaca laut: tenang atau berombak besar. Saat ombak besar, kapal kecil sebaiknya tidak berlayar.",
+  },
+  {
+    term: "Win rate",
+    short: "Berapa persen trade yang menang",
+    plain: "Dari 10 trade, menang 4 = win rate 40%. Win rate tinggi belum tentu untung bila kerugiannya lebih besar dari untungnya.",
+    analogy: "Penjual yang laku 9 kali untung Rp1 ribu tetapi sekali rugi Rp20 ribu tetap rugi total.",
+  },
+  {
+    term: "Profit factor (PF)",
+    short: "Total untung ÷ total rugi",
+    plain: "Di atas 1 = untung bersih; di bawah 1 = rugi. PF 1,2 artinya setiap $1 kerugian dibalas $1,20 keuntungan.",
+    analogy: "Seperti neraca warung: pemasukan dibanding pengeluaran.",
+  },
+  {
+    term: "Drawdown",
+    short: "Penurunan modal terdalam",
+    plain: "Seberapa jauh modal turun dari titik tertingginya sebelum naik lagi.",
+    analogy: "Seperti lubang terdalam di jalan yang harus dilewati sebelum sampai tujuan.",
+  },
+  {
+    term: "Backtest",
+    short: "Uji strategi di masa lalu",
+    plain: "Menjalankan aturan strategi pada data harga lama untuk melihat apakah dulu menguntungkan.",
+    analogy: "Seperti mengerjakan soal ujian tahun lalu untuk latihan.",
+  },
+  {
+    term: "In-sample / out-of-sample",
+    short: "Data latihan / data ujian",
+    plain: "Strategi dipilih memakai data latihan (in-sample), lalu diuji jujur di data yang belum pernah dilihat (out-of-sample).",
+    analogy: "Belajar dari buku latihan, lalu ujian dengan soal baru. Nilai ujian yang dipercaya, bukan nilai latihan.",
+  },
+  {
+    term: "Akun demo",
+    short: "Latihan dengan uang mainan",
+    plain: "Akun di broker dengan saldo virtual. Harga sungguhan, tetapi uangnya tidak nyata.",
+    analogy: "Seperti simulator mengemudi sebelum turun ke jalan raya.",
+  },
+];
+
 const SECTIONS = [
+  { id: "dasar", title: "Mulai dari nol" },
   { id: "aplikasi", title: "Cara memakai SignalFlow" },
   { id: "pola", title: "Pola candlestick" },
   { id: "indikator", title: "Indikator di grafik" },
@@ -348,6 +527,41 @@ function PatternCards() {
   );
 }
 
+function Glossary() {
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+  const shown = TERMS.filter((t) => !q || `${t.term} ${t.short} ${t.plain}`.toLowerCase().includes(q));
+  return (
+    <>
+      <input
+        type="search"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Cari istilah, mis. stop loss, lot, pip…"
+        className="w-full rounded-lg border border-line bg-bg px-3 py-2.5 text-sm outline-none focus:border-brand"
+      />
+      <div className="space-y-2">
+        {shown.map((t) => (
+          <Item key={t.term} title={`${t.term} — ${t.short}`}>
+            <p>{t.plain}</p>
+            <p className="rounded-lg bg-brand/10 px-2.5 py-1.5 text-[13px]">
+              <b className="text-brand">Ibaratnya: </b>
+              {t.analogy}
+            </p>
+            {t.example && (
+              <p className="text-[13px]">
+                <b>Contoh: </b>
+                {t.example}
+              </p>
+            )}
+          </Item>
+        ))}
+        {!shown.length && <p className="text-sm text-muted">Istilah tidak ditemukan.</p>}
+      </div>
+    </>
+  );
+}
+
 export default function GuidePage() {
   return (
     <>
@@ -360,6 +574,65 @@ export default function GuidePage() {
             </a>
           ))}
         </nav>
+
+        <Section id="dasar" title="Mulai dari nol">
+          <p className="text-sm leading-relaxed text-fg-soft">
+            Belum pernah trading sama sekali? Mulai di sini. Bayangkan Anda pedagang di pasar: membeli barang saat
+            menurut Anda harganya akan naik, dan menjualnya kembali saat harga sudah lebih tinggi. Bedanya, di forex
+            &quot;barangnya&quot; adalah mata uang atau emas, dan Anda juga bisa untung ketika harga turun.
+          </p>
+          <div className="space-y-2 rounded-xl bg-panel-2 p-3 text-sm leading-relaxed text-fg-soft">
+            <p className="font-semibold text-fg">Contoh satu trade dari awal sampai akhir</p>
+            <ol className="list-decimal space-y-1.5 pl-5">
+              <li>
+                SignalFlow menampilkan <b className="text-buy">▲ BUY EURUSD</b>: Entry 1,1150 · SL 1,1130 · TP 1,1190 ·
+                lot 0,05.
+              </li>
+              <li>
+                Anda membuka aplikasi broker, memilih EURUSD, menekan <b>Buy</b> dengan ukuran 0,05 lot, dan mengisi Stop
+                Loss 1,1130 serta Take Profit 1,1190.
+              </li>
+              <li>
+                <b>Bila harga naik ke 1,1190</b> → posisi tertutup otomatis di TP. Untung <span className="whitespace-nowrap">40 pip × ±$0,50</span> = <span className="whitespace-nowrap">±$20</span>.
+              </li>
+              <li>
+                <b>Bila harga malah turun ke 1,1130</b> → posisi tertutup otomatis di SL. Rugi <span className="whitespace-nowrap">20 pip × ±$0,50</span> = <span className="whitespace-nowrap">±$10</span>.
+                Kerugian sudah Anda ketahui dan terima sejak awal.
+              </li>
+              <li>
+                <b>Bila muncul ■ CLOSE</b> sebelum keduanya tersentuh → tutup posisi secara manual di broker.
+              </li>
+            </ol>
+            <p>
+              Intinya: setiap trade punya <b>batas rugi yang jelas (SL)</b> dan <b>target yang jelas (TP)</b>. Anda tidak
+              perlu menebak dengan benar setiap kali; cukup untung lebih besar daripada rugi dalam jangka panjang.
+            </p>
+          </div>
+          <div className="grid gap-2 text-sm sm:grid-cols-3">
+            <div className="rounded-xl bg-panel-2 p-3">
+              <p className="font-semibold">1. Belajar</p>
+              <p className="mt-1 text-[13px] text-fg-soft">Baca istilah di bawah sampai paham arti BUY, SELL, SL, TP, dan lot.</p>
+            </div>
+            <div className="rounded-xl bg-panel-2 p-3">
+              <p className="font-semibold">2. Latihan di demo</p>
+              <p className="mt-1 text-[13px] text-fg-soft">Ikuti sinyal memakai akun demo beberapa minggu. Catat hasilnya.</p>
+            </div>
+            <div className="rounded-xl bg-panel-2 p-3">
+              <p className="font-semibold">3. Uang kecil dulu</p>
+              <p className="mt-1 text-[13px] text-fg-soft">Bila sudah nyaman, mulai dengan modal yang siap hilang dan lot terkecil.</p>
+            </div>
+          </div>
+          <p className="rounded-xl bg-close/10 px-3 py-2 text-[13px] text-warn">
+            ⚠ Trading bisa rugi. Jangan memakai uang kebutuhan sehari-hari, uang pinjaman, atau tabungan darurat.
+          </p>
+          <p className="text-sm text-fg-soft">
+            Semua istilah dijelaskan dengan perumpamaan di bagian{" "}
+            <a href="#istilah" className="font-semibold text-brand underline">
+              Istilah
+            </a>
+            .
+          </p>
+        </Section>
 
         <Section id="aplikasi" title="Cara memakai SignalFlow">
           <p className="text-sm text-fg-soft">
@@ -556,27 +829,7 @@ export default function GuidePage() {
         </Section>
 
         <Section id="istilah" title="Istilah">
-          <dl className="grid gap-2 text-sm sm:grid-cols-2">
-            {[
-              ["Pip", "Satuan gerak harga terkecil yang umum. EURUSD 0,0001; USDJPY 0,01."],
-              ["Spread", "Selisih harga beli (ask) dan jual (bid) — biaya setiap order."],
-              ["Lot", "Ukuran posisi. 1 lot standar = 100.000 unit mata uang dasar."],
-              ["R", "Satu kali jarak risiko (entry→SL). Untung 2R = dua kali risiko."],
-              ["Win rate", "Persentase trade yang untung."],
-              ["Profit factor (PF)", "Total untung ÷ total rugi. Di atas 1 = untung bersih."],
-              ["Drawdown", "Penurunan modal terbesar dari puncak sebelumnya."],
-              ["Backtest", "Menguji strategi pada data harga masa lalu."],
-              ["In-sample / out-of-sample", "Data untuk memilih strategi / data terpisah untuk mengujinya secara jujur."],
-              ["Pullback", "Koreksi sementara melawan arah tren sebelum tren berlanjut."],
-              ["Breakout", "Harga menembus batas rentang (high/low) sebelumnya."],
-              ["Timeframe", "Durasi satu candle: M15 = 15 menit, H1 = 1 jam, H4 = 4 jam."],
-            ].map(([term, def]) => (
-              <div key={term} className="rounded-xl bg-panel-2 p-2.5">
-                <dt className="font-semibold">{term}</dt>
-                <dd className="text-[13px] text-fg-soft">{def}</dd>
-              </div>
-            ))}
-          </dl>
+          <Glossary />
         </Section>
 
         <Disclaimer />

@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { endpoints } from "@/lib/api";
-import type { ChartRead, Timeframe } from "@/lib/types";
+import type { AnalysisWindow } from "@/lib/patternHint";
+import type { ChartRead } from "@/lib/types";
 
 const LEAN_STYLE: Record<ChartRead["lean"], { chip: string; icon: string }> = {
   naik: { chip: "bg-buy/20 text-buy", icon: "▲" },
@@ -20,26 +19,17 @@ const DOT: Record<ChartRead["points"][number]["tone"], string> = {
 /**
  * Analisis kondisi chart (tren H4/H1/grafik, momentum, RSI, level) di dalam kartu STRATEGI.
  * Ringkasan apa yang terlihat di grafik — bukan sinyal strategi yang lolos backtest.
+ * Data dimuat di ChartMonitor (`useChartRead`) agar grafik menampilkan hasil yang sama.
  */
-export function ChartAnalysis({ symbol, timeframe, reloadKey }: { symbol: string; timeframe: Timeframe | null; reloadKey: number }) {
-  const [data, setData] = useState<ChartRead | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!timeframe) return;
-    let active = true;
-    endpoints
-      .chartAnalysis(symbol, timeframe)
-      .then((r) => {
-        if (!active) return;
-        setData(r);
-        setError(null);
-      })
-      .catch((e: Error) => active && setError(e.message));
-    return () => {
-      active = false;
-    };
-  }, [symbol, timeframe, reloadKey]);
+export function ChartAnalysis({
+  data,
+  error,
+  window,
+}: {
+  data: ChartRead | null;
+  error: string | null;
+  window?: AnalysisWindow | null;
+}) {
 
   if (error) return <p className="text-xs text-err">Analisis chart gagal dimuat: {error}</p>;
   if (!data) return <div className="h-12 animate-pulse rounded-lg bg-white/5" />;
@@ -55,6 +45,12 @@ export function ChartAnalysis({ symbol, timeframe, reloadKey }: { symbol: string
         </span>
       </div>
       <div className="font-semibold leading-snug">{data.headline}</div>
+      {window && window.timeframe === data.timeframe && (
+        <p className="tabular text-xs font-semibold text-fg-soft">
+          ⏱ Periode analisis: {window.label}{" "}
+          <span className="font-normal text-muted">(1 candle {data.timeframe})</span>
+        </p>
+      )}
       <p className="text-xs leading-snug text-fg-soft">{data.watch}</p>
       <details className="group">
         <summary className="cursor-pointer list-none text-xs font-semibold text-accent">

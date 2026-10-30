@@ -82,6 +82,19 @@ export interface SignalView {
   close_price: number | null;
   close_reason: string | null;
   result_pips: number | null;
+  /** Perkiraan waktu CLOSE terbaik dari histori strategi (sinyal aktif) */
+  best_close?: {
+    /** CLOSE setelah sekian candle sejak masuk */
+    hold: number;
+    close_at: string;
+    /** rata-rata hasil bersih historis bila CLOSE di close_at (pip) */
+    avg_pips: number;
+    win_rate: number;
+    samples: number;
+    /** rata-rata bila mengikuti aturan keluar strategi (TP/SL/CLOSE) apa adanya */
+    strategy_pips: number;
+  } | null;
+  best_close_note?: string | null;
 }
 
 export interface AnalysisOut {
@@ -173,7 +186,12 @@ export type LiveMessage = {
 };
 
 export type WsMessage =
-  | { type: "hello"; server_time: string; next_candle_close: string; refresh_seconds: number }
+  | {
+      type: "hello";
+      server_time: string;
+      next_candle_close: string;
+      refresh_seconds: number;
+    }
   | { type: "card"; data: InstrumentCard }
   | { type: "signal"; data: SignalView }
   | LiveMessage
@@ -306,6 +324,12 @@ export interface PatternOut {
   samples: number;
   /** Kecondongannya (searah / berlawanan pola) cukup meyakinkan secara statistik */
   reliable: boolean;
+  /** CLOSE dengan rata-rata untung terbesar di histori: sekian candle setelah masuk (null = tidak ada yang untung) */
+  best_hold?: number | null;
+  /** Rata-rata hasil bersih (pip, setelah spread) bila CLOSE di best_hold */
+  best_pips?: number | null;
+  /** Bagian kejadian yang untung bila CLOSE di best_hold */
+  best_win?: number | null;
 }
 
 export interface PatternMark extends PatternOut {
@@ -387,4 +411,57 @@ export interface ChartRead {
   price: number | null;
   support: number | null;
   resistance: number | null;
+}
+
+/** Uji maju prediksi pola: hanya prediksi yang dicatat sebelum hasilnya diketahui. */
+export interface PredictionSummary {
+  since: string | null;
+  done: number;
+  hits: number;
+  /** total pip bersih setelah spread */
+  pips: number;
+  pending: number;
+  groups: {
+    symbol: string;
+    timeframe: Timeframe;
+    done: number;
+    hits: number;
+    pips: number;
+  }[];
+  recent: {
+    id: number;
+    symbol: string;
+    timeframe: Timeframe;
+    pattern: string;
+    direction: 1 | -1;
+    chance: number;
+    entry_time: string;
+    close_time: string;
+    result_pips: number | null;
+    status: "open" | "done" | "no_data";
+  }[];
+}
+
+/** Pola pada candle yang SEDANG berjalan (sementara) + prediksi candle berikutnya. */
+export interface FormingResponse {
+  symbol: string;
+  timeframe: Timeframe;
+  live: boolean;
+  candle_start: number | null;
+  candle_end: number | null;
+  next_end: number | null;
+  progress: number | null;
+  patterns: PatternOut[];
+  prediction: {
+    direction: "BUY" | "SELL";
+    pattern: string;
+    chance: number;
+    samples: number;
+    /** CLOSE setelah sekian candle sejak masuk (rata-rata untung terbesar di histori) */
+    hold: number;
+    close_at: number;
+    avg_pips: number | null;
+    win_rate: number | null;
+  } | null;
+  note: string;
 }

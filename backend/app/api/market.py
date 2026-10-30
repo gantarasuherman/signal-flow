@@ -23,6 +23,8 @@ from app.repositories import instrument_settings as settings_repo
 from app.services.calibration import CalibrationError, calibrate, reset_calibration
 from app.services.candle_sync import refresh_if_stale
 from app.services.live_candle import fetch_live
+from app.services.pattern_stats import get_pattern_stats
+from app.services.prediction_log import log_predictions
 from app.services.signal_engine import candles_to_frame
 from app.services.views import CandleOut, InstrumentOut, candle_out, instrument_out
 
@@ -191,6 +193,12 @@ async def get_candles(
     )
     rows = all_rows[-limit:]
     frame = compute_indicators(candles_to_frame(all_rows)) if indicators and all_rows else None
+    # Peluang historis pola di timeframe ini (cache Redis) → prediksi candle berikutnya di grafik
+    stats = (
+        await get_pattern_stats(session, get_redis(), instrument.symbol, timeframe)
+        if frame is not None
+        else {}
+    )
     offset = await _offset(session, instrument.symbol, adjusted)
 
     live, live_at, live_warning = (None, None, None)
@@ -202,7 +210,7 @@ async def get_candles(
         # Penyegaran ditolak lokal tanpa pesan; tetap jelaskan mengapa grafik tidak bergerak
         warning = quota_exhausted_warning(provider.name)
 
-    return CandlesResponse(
+    response = CandlesResponse(
         symbol=instrument.symbol,
         timeframe=timeframe,
         adjusted=adjusted,
@@ -216,8 +224,12 @@ async def get_candles(
         indicators=indicator_series(frame, limit, offset, instrument.digits)
         if frame is not None
         else None,
-        patterns=pattern_marks(frame, len(rows)) if frame is not None else None,
+        patterns=pattern_marks(frame, len(rows), stats, instrument) if frame is not None else None,
     )
+    if frame is not None:
+        # Uji maju: catat prediksi pola timeframe ini saat grafik dibuka (setelah respons disusun)
+        await log_predictions(session, get_redis(), instrument, timeframe, now)
+    return response
 
 
 @router.get("/candles/live", response_model=LiveCandleResponse)

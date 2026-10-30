@@ -63,6 +63,46 @@ function EntryBanner({ signal, livePrice }: { signal: SignalView; livePrice?: nu
   );
 }
 
+const TF_MINUTES: Record<string, number> = { M1: 1, M5: 5, M15: 15, H1: 60, H4: 240 };
+
+function minutesText(total: number): string {
+  const minutes = Math.round(total);
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h ? (m ? `${h} jam ${m} menit` : `${h} jam`) : `${m} menit`;
+}
+
+/** Perkiraan waktu CLOSE dengan rata-rata untung terbesar di histori strategi ini. */
+function BestCloseBox({ signal }: { signal: SignalView }) {
+  if (signal.action === "CLOSE" || signal.status !== "ACTIVE") return null;
+  const b = signal.best_close;
+  if (!b) {
+    return signal.best_close_note ? (
+      <div className="rounded-lg bg-panel-2 px-3 py-2 text-xs text-muted">⏹ {signal.best_close_note}</div>
+    ) : null;
+  }
+  const better = b.avg_pips > b.strategy_pips;
+  const left = (new Date(b.close_at).getTime() - Date.now()) / 60000;
+  return (
+    <div className="rounded-lg border border-close/40 bg-close/10 px-3 py-2">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-sm font-bold text-warn">⏹ CLOSE terbaik {timeWIB(b.close_at)} WIB</span>
+        <span className="tabular text-xs text-fg-soft">
+          {left > 0 ? `${minutesText(left)} lagi` : "sudah lewat"}
+        </span>
+      </div>
+      <p className="mt-0.5 text-xs leading-snug text-muted">
+        Tahan {b.hold} candle {signal.timeframe} ({minutesText(b.hold * (TF_MINUTES[signal.timeframe] ?? 15))}) sejak masuk. Dari {b.samples}{" "}
+        transaksi historis strategi ini, menutup di waktu ini rata-rata{" "}
+        <b className={b.avg_pips >= 0 ? "text-buy" : "text-sell"}>{formatPips(b.avg_pips, true)} pip</b> (untung{" "}
+        {Math.round(b.win_rate * 100)}%), {better ? "lebih baik dari" : "tidak lebih baik dari"} menunggu TP/SL/CLOSE
+        biasa ({formatPips(b.strategy_pips, true)} pip). SL/TP tetap dipasang; bila tersentuh lebih dulu, posisi
+        tertutup di sana.
+      </p>
+    </div>
+  );
+}
+
 function LotBox({ signal }: { signal: SignalView }) {
   if (signal.action === "CLOSE" || (signal.status !== "ACTIVE" && signal.status !== "EXPIRED")) return null;
   if (signal.capital == null) {
@@ -220,6 +260,7 @@ export function SignalCard({ card, livePrice, href }: Props) {
           )}
 
           {!isClose && <EntryBanner signal={signal} livePrice={livePrice} />}
+          <BestCloseBox signal={signal} />
           <LotBox signal={signal} />
 
           {signal.status !== "ACTIVE" && signal.status !== "EXPIRED" && !isClose && signal.result_pips != null && (

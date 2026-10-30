@@ -10,18 +10,22 @@ from pydantic import BaseModel, Field
 
 from app.analysis.indicators import compute_indicators
 from app.api.deps import ProviderDep, SessionDep, resolve_instrument
-from app.core.instruments import get_instruments
+from app.core.instruments import Instrument, get_instruments
 from app.core.market_hours import last_expected_candle_open
 from app.core.redis import get_redis
 from app.core.timeframes import Timeframe
 from app.repositories import candles as candles_repo
 from app.services.candle_sync import is_up_to_date, refresh_if_stale
+from app.services.live_candle import fetch_live
 from app.services.pattern_stats import (
     HORIZON,
+    MAX_HOLD,
     MIN_EDGE,
     MIN_SAMPLES,
     PatternStat,
+    best_exit,
     get_pattern_stats,
+    is_proven,
     wilson_lower,
 )
 from app.services.signal_engine import candles_to_frame
@@ -50,6 +54,17 @@ class PatternOut(BaseModel):
     reliable: bool = Field(
         default=False,
         description="Arah terbesar (searah atau berlawanan pola) >= MIN_EDGE dan lolos uji 95%",
+    )
+    best_hold: int | None = Field(
+        default=None,
+        description=f"CLOSE dengan rata-rata untung terbesar: sekian candle setelah masuk "
+        f"(1…{MAX_HOLD}); None bila tidak ada yang untung setelah spread",
+    )
+    best_pips: float | None = Field(
+        default=None, description="Rata-rata hasil bersih (pip) bila CLOSE di best_hold"
+    )
+    best_win: float | None = Field(
+        default=None, description="Bagian kejadian yang untung bila CLOSE di best_hold"
     )
 
 
@@ -86,13 +101,20 @@ class PatternsResponse(BaseModel):
     conclusion: PatternConclusion
 
 
-def pattern_out(read: PatternRead, stat: PatternStat | None = None) -> PatternOut:
+def pattern_out(
+    read: PatternRead, stat: PatternStat | None = None, instrument: Instrument | None = None
+) -> PatternOut:
     p = read.pattern
     tested = stat is not None and stat.samples >= MIN_SAMPLES and p.bias != 0
     reliable = False
     if tested and stat:
         hits = max(stat.hits, stat.samples - stat.hits)
         reliable = hits / stat.samples >= MIN_EDGE and wilson_lower(hits, stat.samples) > 0.5
+    plan = (
+        best_exit(stat, instrument.pip_size, instrument.typical_spread_pips)
+        if instrument and p.bias
+        else None
+    )
     return PatternOut(
         name=p.name,
         bias=p.bias,
@@ -103,13 +125,27 @@ def pattern_out(read: PatternRead, stat: PatternStat | None = None) -> PatternOu
         probability=round(stat.rate, 3) if tested and stat else None,
         samples=stat.samples if stat else 0,
         reliable=reliable,
+        best_hold=plan.hold if plan else None,
+        best_pips=plan.pips if plan else None,
+        best_win=plan.win_rate if plan else None,
     )
 
 
-def pattern_marks(df: pd.DataFrame, bars: int) -> list[PatternMark]:
-    """Pola berarah (bukan Spinning Top) di `bars` candle terakhir, untuk penanda grafik."""
+def pattern_marks(
+    df: pd.DataFrame,
+    bars: int,
+    stats: dict[str, PatternStat] | None = None,
+    instrument: Instrument | None = None,
+) -> list[PatternMark]:
+    """Pola berarah (bukan Spinning Top) di `bars` candle terakhir, untuk penanda grafik.
+    `stats` (peluang historis per pola di timeframe ini) membuat grafik bisa menampilkan
+    prediksi candle berikutnya untuk pola yang terbukti."""
+    stats = stats or {}
     return [
-        PatternMark(time=int(t.timestamp()), **pattern_out(r).model_dump())
+        PatternMark(
+            time=int(t.timestamp()),
+            **pattern_out(r, stats.get(r.pattern.name), instrument).model_dump(),
+        )
         for t, r in scan_patterns(df, bars, row_trend)
         if r.pattern.bias
     ]
@@ -233,7 +269,7 @@ async def get_patterns(
                 trend=TREND_TEXT[trend],
                 candle_time=int(df.index[-1].timestamp()),
                 up_to_date=fresh,
-                patterns=[pattern_out(r, stats.get(r.pattern.name)) for r in reads],
+                patterns=[pattern_out(r, stats.get(r.pattern.name), instrument) for r in reads],
             )
         )
     return PatternsResponse(
@@ -297,3 +333,105 @@ async def get_pattern_odds(session: SessionDep) -> PatternOddsResponse:
             rows += [r for n, s in stats.items() if (r := pattern_odds(symbol, tf, n, s))]
     rows.sort(key=lambda r: (r.chance, r.samples), reverse=True)
     return PatternOddsResponse(rows=rows)
+
+
+# ---------- pola pada candle yang SEDANG berjalan ----------
+
+
+class FormingPrediction(BaseModel):
+    direction: Literal["BUY", "SELL"]
+    pattern: str
+    chance: float = Field(description="Peluang historis pola ini benar (searah teori)")
+    samples: int
+    hold: int = Field(default=1, description="CLOSE setelah sekian candle sejak masuk")
+    close_at: int = Field(description="Waktu CLOSE dengan rata-rata untung terbesar (detik)")
+    avg_pips: float | None = Field(
+        default=None, description="Rata-rata hasil bersih historis bila CLOSE di close_at"
+    )
+    win_rate: float | None = Field(
+        default=None, description="Bagian kejadian historis yang untung bila CLOSE di close_at"
+    )
+
+
+class FormingResponse(BaseModel):
+    symbol: str
+    timeframe: Timeframe
+    live: bool = Field(description="false = tidak ada candle berjalan (pasar tutup / data kosong)")
+    candle_start: int | None = Field(default=None, description="Buka candle berjalan (detik)")
+    candle_end: int | None = Field(
+        default=None, description="Tutup candle berjalan = awal prediksi"
+    )
+    next_end: int | None = Field(default=None, description="Tutup candle berikutnya = CLOSE")
+    progress: float | None = Field(default=None, description="Bagian candle berjalan yang lewat")
+    patterns: list[PatternOut] = Field(default_factory=list)
+    prediction: FormingPrediction | None = None
+    note: str
+
+
+@router.get("/patterns/forming", response_model=FormingResponse)
+async def get_forming_pattern(
+    session: SessionDep,
+    provider: ProviderDep,
+    symbol: Annotated[str, Query(examples=["XAUUSD"])],
+    timeframe: Timeframe = Timeframe.M15,
+) -> FormingResponse:
+    """Pola yang terbentuk bila candle BERJALAN tutup di harga sekarang, dan prediksi sementara
+    untuk candle berikutnya (pola terbukti saja). Bisa berubah sampai candle tutup."""
+    instrument = resolve_instrument(symbol)
+    redis, now = get_redis(), datetime.now(UTC)
+    await refresh_if_stale(session, provider, redis, instrument, timeframe, now)
+    rows = await candles_repo.get_candles(session, instrument.symbol, timeframe, limit=FRAME_BARS)
+    live, _, _ = await fetch_live(provider, redis, instrument, timeframe)
+    if live is None or not rows or live.open_time <= rows[-1].open_time:
+        return FormingResponse(
+            symbol=instrument.symbol,
+            timeframe=timeframe,
+            live=False,
+            note="Tidak ada candle berjalan (pasar tutup atau data live belum tersedia).",
+        )
+    df = candles_to_frame(rows)
+    live_ohlc = [live.open, live.high, live.low, live.close]
+    df.loc[pd.Timestamp(live.open_time).tz_convert(UTC)] = live_ohlc
+    df = compute_indicators(df)
+    reads = read_patterns(df, row_trend(df.iloc[-1]))
+    stats = await get_pattern_stats(session, redis, instrument.symbol, timeframe) if reads else {}
+    start = live.open_time
+    end = start + timeframe.delta
+    proven = [r for r in reads if r.pattern.bias and is_proven(stats.get(r.pattern.name))]
+    prediction = None
+    if proven:
+        best = max(proven, key=lambda r: stats[r.pattern.name].rate)
+        stat = stats[best.pattern.name]
+        plan = best_exit(stat, instrument.pip_size, instrument.typical_spread_pips)
+        hold = plan.hold if plan else 1
+        prediction = FormingPrediction(
+            direction="BUY" if best.pattern.bias > 0 else "SELL",
+            pattern=best.pattern.name,
+            chance=round(stat.rate, 3),
+            samples=stat.samples,
+            hold=hold,
+            close_at=int((end + timeframe.delta * hold).timestamp()),
+            avg_pips=plan.pips if plan else None,
+            win_rate=plan.win_rate if plan else None,
+        )
+        note = (
+            f"Bila candle ini tutup seperti sekarang, {best.pattern.name} terbentuk → "
+            f"{prediction.direction} di candle berikutnya, CLOSE setelah {hold} candle. "
+            "Masih sementara sampai candle tutup."
+        )
+    elif reads:
+        note = "Pola sedang terbentuk, tetapi belum terbukti di histori — tidak ada prediksi."
+    else:
+        note = "Belum ada pola yang terbentuk di candle berjalan."
+    return FormingResponse(
+        symbol=instrument.symbol,
+        timeframe=timeframe,
+        live=True,
+        candle_start=int(start.timestamp()),
+        candle_end=int(end.timestamp()),
+        next_end=int((end + timeframe.delta).timestamp()),
+        progress=round(min(max((now - start) / timeframe.delta, 0.0), 1.0), 2),
+        patterns=[pattern_out(r, stats.get(r.pattern.name), instrument) for r in reads],
+        prediction=prediction,
+        note=note,
+    )

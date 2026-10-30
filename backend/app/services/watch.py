@@ -49,8 +49,8 @@ async def watch_all_enabled(session: AsyncSession) -> bool:
 async def set_watch_all(
     session: AsyncSession, redis: Redis, enabled: bool, symbols: list[str]
 ) -> None:
+    """Simpan pilihan (commit dilakukan pemanggil) lalu beri tahu worker bila dinyalakan."""
     await app_settings.set_value(session, WATCH_ALL_SETTING, enabled)
-    await session.commit()
     if enabled:
         # Minta worker langsung menganalisis semua instrumen tanpa menunggu candle berikutnya
         for symbol in symbols:

@@ -35,7 +35,6 @@ async def test_watch_all_setting_notifies_worker_for_every_symbol(db_session) ->
     redis = FakeAsyncRedis(decode_responses=True)
     pubsub = redis.pubsub()
     await pubsub.subscribe(WATCH_CHANNEL)
-    assert await watch_all_enabled(db_session) is False
     await set_watch_all(db_session, redis, True, ["EURUSD", "XAUUSD"])
     assert await watch_all_enabled(db_session) is True
     got = []

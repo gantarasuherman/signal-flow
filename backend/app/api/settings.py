@@ -45,6 +45,7 @@ async def update_watch_all(body: WatchAll, session: SessionDep) -> WatchAll:
     """Nyala: strategi menganalisis keempat instrumen tiap 15 menit, bukan hanya yang dibuka
     (lebih banyak pemakaian kuota data Twelve Data)."""
     await set_watch_all(session, get_redis(), body.enabled, sorted(get_instruments()))
+    await session.commit()
     return body
 
 

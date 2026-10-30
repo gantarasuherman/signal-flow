@@ -128,12 +128,24 @@ docker compose up -d --build
 
 ### Membuka dari iPhone (Wi-Fi yang sama)
 
-1. Cari IP laptop: PowerShell `ipconfig` → "IPv4 Address" (mis. `192.168.1.20`);
-   di macOS `ipconfig getifaddr en0`.
-2. Di Safari iPhone buka `http://192.168.1.20:8080`.
-3. Bila tidak terbuka, izinkan port di Windows Firewall (PowerShell sebagai Administrator):
-   `New-NetFirewallRule -DisplayName SignalFlow -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow`
-4. Safari → Bagikan → **Tambah ke Layar Utama** untuk memasangnya seperti aplikasi.
+1. Cari IP laptop: PowerShell `ipconfig` → "IPv4 Address" pada adaptor **Wi-Fi**
+   (mis. `192.168.1.20`); di macOS `ipconfig getifaddr en0`. Abaikan alamat `172.x.x.x`
+   (jaringan internal WSL/Docker). IP bisa berubah bila pindah Wi-Fi atau router memberi
+   IP baru, jadi cek lagi bila alamat lama tidak terbuka.
+2. Cari port: nilai `APP_PORT` di `.env` (bawaan `8080`; ganti bila bentrok dengan aplikasi
+   lain, mis. `APP_PORT=8090`). Cek dengan `docker compose ps` → kolom Ports pada `proxy`.
+3. Di Safari iPhone buka `http://<IP-laptop>:<APP_PORT>`, mis. `http://192.168.1.20:8080`.
+   iPhone harus terhubung ke Wi-Fi yang sama dengan laptop.
+4. Bila tidak terbuka dari HP (padahal `http://localhost:<APP_PORT>` di laptop terbuka),
+   izinkan port tersebut di Windows Firewall (PowerShell **sebagai Administrator**, ganti
+   `8080` dengan nilai `APP_PORT`):
+   `New-NetFirewallRule -DisplayName SignalFlow -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow -Profile Private`
+   Pastikan jaringan Wi-Fi di Windows berprofil **Private** (Settings → Network → Wi-Fi →
+   Network profile type), bukan Public.
+5. Safari → Bagikan → **Tambah ke Layar Utama** untuk memasangnya seperti aplikasi.
+6. Laptop harus menyala dan Docker Desktop berjalan selama memantau dari HP. Setelah laptop
+   restart, buka Docker Desktop; bila container tidak jalan sendiri, jalankan
+   `docker compose up -d`.
 
 > SignalFlow tidak mengirim notifikasi apa pun; buka dashboard saat ingin trading. Aktifkan
 > "Layar tetap menyala" di beranda agar layar HP tidak mati saat memantau.

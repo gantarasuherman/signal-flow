@@ -133,4 +133,42 @@ class BacktestRun(Base):
     error: Mapped[str | None] = mapped_column(Text)
 
 
-__all__ = ["AppSetting", "BacktestRun", "Base", "Candle", "InstrumentSetting", "Signal"]
+class PatternPrediction(Base):
+    """Prediksi candle berikutnya dari pola candlestick terbukti, dicatat SAAT terjadi
+    (uji maju). `on_time` = tercatat sebelum hasilnya bisa diketahui; hanya baris ini yang
+    dihitung sebagai ukuran jujur. Harga mentah (tanpa offset kalibrasi)."""
+
+    __tablename__ = "pattern_predictions"
+    __table_args__ = (
+        UniqueConstraint("symbol", "timeframe", "pattern_time", "pattern"),
+        Index("ix_pattern_predictions_status_close", "status", "close_time"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(16))
+    timeframe: Mapped[str] = mapped_column(String(4))
+    pattern: Mapped[str] = mapped_column(String(32))
+    direction: Mapped[int]  # 1 BUY, -1 SELL
+    chance: Mapped[float] = mapped_column(Double)  # peluang historis saat dicatat
+    samples: Mapped[int]
+    pattern_time: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    entry_time: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    close_time: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    entry_price: Mapped[float] = mapped_column(Double)
+    spread_pips: Mapped[float] = mapped_column(Double)
+    exit_price: Mapped[float | None] = mapped_column(Double)
+    result_pips: Mapped[float | None] = mapped_column(Double)
+    status: Mapped[str] = mapped_column(String(8), default="open")  # open / done / no_data
+    on_time: Mapped[bool]
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+__all__ = [
+    "AppSetting",
+    "BacktestRun",
+    "Base",
+    "Candle",
+    "InstrumentSetting",
+    "PatternPrediction",
+    "Signal",
+]

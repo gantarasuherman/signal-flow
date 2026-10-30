@@ -5,7 +5,9 @@ import type {
   ChartRead,
   LiveStats,
   PatternOddsResponse,
+  FormingResponse,
   PatternsResponse,
+  PredictionSummary,
   DashboardResponse,
   DataProviderId,
   DataProviderState,
@@ -111,6 +113,14 @@ export const endpoints = {
     api<{ warning: string | null }>(`/analysis/ai/warning?symbol=${encodeURIComponent(symbol)}`),
   chartAnalysis: (symbol: string, timeframe: Timeframe) =>
     api<ChartRead>(`/analysis/chart?symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}`),
+  predictions: (symbol?: string, timeframe?: Timeframe) => {
+    const q = new URLSearchParams();
+    if (symbol) q.set("symbol", symbol);
+    if (timeframe) q.set("timeframe", timeframe);
+    return api<PredictionSummary>(`/predictions?${q}`);
+  },
+  formingPattern: (symbol: string, timeframe: Timeframe) =>
+    api<FormingResponse>(`/patterns/forming?symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}`),
   patternOdds: () => api<PatternOddsResponse>("/patterns/stats"),
   patterns: (symbol: string, timeframe?: Timeframe) =>
     api<PatternsResponse>(

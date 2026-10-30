@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { PredictionLog } from "@/components/PredictionLog";
 import { AppHeader } from "@/components/AppHeader";
 import { LiveStatsPanel } from "@/components/LiveStatsPanel";
 import { endpoints } from "@/lib/api";
@@ -20,24 +21,38 @@ function Row({ s }: { s: SignalView }) {
     <li className="surface rounded-xl p-3" onClick={() => setOpen(!open)}>
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span className={`w-14 text-lg font-black ${style.text}`}>{s.action}</span>
+          <span className={`w-14 text-lg font-black ${style.text}`}>
+            {s.action}
+          </span>
           <div>
             <div className="font-semibold">
               {s.symbol}
               {s.source === "ai" && (
-                <span className="ml-1.5 rounded bg-ai/20 px-1 py-0.5 text-[10px] font-bold text-ai">AI</span>
+                <span className="ml-1.5 rounded bg-ai/20 px-1 py-0.5 text-[10px] font-bold text-ai">
+                  AI
+                </span>
               )}
             </div>
-            <div className="text-xs text-muted">{dateTimeWIB(s.signal_time)} WIB</div>
+            <div className="text-xs text-muted">
+              {dateTimeWIB(s.signal_time)} WIB
+            </div>
           </div>
         </div>
         <div className="text-right">
           {s.action !== "CLOSE" && (
-            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_STYLE[s.status]}`}>{s.status_label}</span>
+            <span
+              className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_STYLE[s.status]}`}
+            >
+              {s.status_label}
+            </span>
           )}
-          {s.action === "CLOSE" && s.closes_action && <span className="text-xs text-muted">tutup {s.closes_action}</span>}
+          {s.action === "CLOSE" && s.closes_action && (
+            <span className="text-xs text-muted">tutup {s.closes_action}</span>
+          )}
           {result != null && (
-            <div className={`tabular text-sm font-bold ${result >= 0 ? "text-buy" : "text-sell"}`}>
+            <div
+              className={`tabular text-sm font-bold ${result >= 0 ? "text-buy" : "text-sell"}`}
+            >
               {formatPips(result, true)} pip
             </div>
           )}
@@ -51,16 +66,22 @@ function Row({ s }: { s: SignalView }) {
           </div>
           <div>
             <div className="text-muted">SL ({formatPips(s.sl_pips)})</div>
-            <span className="text-sell">{formatPrice(s.stop_loss, s.digits)}</span>
+            <span className="text-sell">
+              {formatPrice(s.stop_loss, s.digits)}
+            </span>
           </div>
           <div>
             <div className="text-muted">TP ({formatPips(s.tp_pips)})</div>
-            <span className="text-buy">{formatPrice(s.take_profit, s.digits)}</span>
+            <span className="text-buy">
+              {formatPrice(s.take_profit, s.digits)}
+            </span>
           </div>
         </div>
       )}
       {(open || s.action === "CLOSE") && (
-        <p className="mt-2 text-sm text-fg-soft">{s.action === "CLOSE" ? s.close_reason : s.reason_text}</p>
+        <p className="mt-2 text-sm text-fg-soft">
+          {s.action === "CLOSE" ? s.close_reason : s.reason_text}
+        </p>
       )}
     </li>
   );
@@ -69,8 +90,11 @@ function Row({ s }: { s: SignalView }) {
 export default function HistoryPage() {
   const [symbol, setSymbol] = useState("");
   const [source, setSource] = useState<Source>("rule");
+  // Tab ketiga: uji maju prediksi pola (bukan daftar sinyal)
+  const [showPredictions, setShowPredictions] = useState(false);
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("source") === "ai") setSource("ai");
+    if (new URLSearchParams(window.location.search).get("source") === "ai")
+      setSource("ai");
   }, []);
   const [items, setItems] = useState<SignalView[]>([]);
   const [loading, setLoading] = useState(false);
@@ -81,7 +105,12 @@ export default function HistoryPage() {
     async (beforeId?: number) => {
       setLoading(true);
       try {
-        const page = await endpoints.signals({ symbol: symbol || undefined, source, limit: PAGE, beforeId });
+        const page = await endpoints.signals({
+          symbol: symbol || undefined,
+          source,
+          limit: PAGE,
+          beforeId,
+        });
         setItems((prev) => (beforeId ? [...prev, ...page] : page));
         setDone(page.length < PAGE);
         setError(null);
@@ -110,50 +139,72 @@ export default function HistoryPage() {
     <>
       <AppHeader title="Riwayat sinyal" />
       <main className="mx-auto max-w-3xl space-y-3 px-4 py-4">
-        <div className="grid grid-cols-2 gap-1 rounded-xl bg-panel p-1">
+        <div className="grid grid-cols-3 gap-1 rounded-xl bg-panel p-1">
           {(["rule", "ai"] as const).map((src) => (
             <button
               key={src}
-              onClick={() => setSource(src)}
-              className={`rounded-lg py-2 text-sm font-semibold ${source === src ? "bg-fg text-bg" : "text-muted"}`}
+              onClick={() => {
+                setSource(src);
+                setShowPredictions(false);
+              }}
+              className={`rounded-lg py-2 text-sm font-semibold ${
+                !showPredictions && source === src
+                  ? "bg-fg text-bg"
+                  : "text-muted"
+              }`}
             >
-              {src === "rule" ? "Strategi (teruji)" : "AI Groq (eksperimen)"}
+              {src === "rule" ? "Strategi" : "AI Groq"}
             </button>
           ))}
-        </div>
-        <LiveStatsPanel refreshKey={statsKey} source={source} />
-        <div className="flex gap-1 overflow-x-auto">
-          {SYMBOLS.map((s) => (
-            <button
-              key={s || "all"}
-              onClick={() => setSymbol(s)}
-              className={`rounded-full px-3 py-1.5 text-sm ${symbol === s ? "bg-fg text-bg" : "bg-panel text-muted"}`}
-            >
-              {s || "Semua"}
-            </button>
-          ))}
-        </div>
-        {error && <p className="text-sm text-sell">{error}</p>}
-        {!loading && items.length === 0 && !error && (
-          <p className="py-10 text-center text-sm text-muted">Belum ada sinyal.</p>
-        )}
-        <ul className="space-y-2">
-          {items.map((s) => (
-            <Row key={s.id} s={s} />
-          ))}
-        </ul>
-        {!done && items.length > 0 && (
           <button
-            disabled={loading}
-            onClick={() => load(items.at(-1)?.id)}
-            className="w-full rounded-xl bg-panel py-3 text-sm text-muted"
+            onClick={() => setShowPredictions(true)}
+            className={`rounded-lg py-2 text-sm font-semibold ${showPredictions ? "bg-fg text-bg" : "text-muted"}`}
           >
-            {loading ? "Memuat…" : "Muat lebih banyak"}
+            Prediksi pola
           </button>
+        </div>
+        {showPredictions ? (
+          <PredictionLog />
+        ) : (
+          <>
+            <LiveStatsPanel refreshKey={statsKey} source={source} />
+            <div className="flex gap-1 overflow-x-auto">
+              {SYMBOLS.map((s) => (
+                <button
+                  key={s || "all"}
+                  onClick={() => setSymbol(s)}
+                  className={`rounded-full px-3 py-1.5 text-sm ${symbol === s ? "bg-fg text-bg" : "bg-panel text-muted"}`}
+                >
+                  {s || "Semua"}
+                </button>
+              ))}
+            </div>
+            {error && <p className="text-sm text-sell">{error}</p>}
+            {!loading && items.length === 0 && !error && (
+              <p className="py-10 text-center text-sm text-muted">
+                Belum ada sinyal.
+              </p>
+            )}
+            <ul className="space-y-2">
+              {items.map((s) => (
+                <Row key={s.id} s={s} />
+              ))}
+            </ul>
+            {!done && items.length > 0 && (
+              <button
+                disabled={loading}
+                onClick={() => load(items.at(-1)?.id)}
+                className="w-full rounded-xl bg-panel py-3 text-sm text-muted"
+              >
+                {loading ? "Memuat…" : "Muat lebih banyak"}
+              </button>
+            )}
+            <p className="text-center text-xs text-muted">
+              Hasil dihitung bila masuk tepat di harga entry, sudah dikurangi
+              spread.
+            </p>
+          </>
         )}
-        <p className="text-center text-xs text-muted">
-          Hasil dihitung bila masuk tepat di harga entry, sudah dikurangi spread.
-        </p>
       </main>
     </>
   );

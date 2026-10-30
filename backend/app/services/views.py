@@ -23,6 +23,7 @@ from app.services.calibration import adjust_price
 from app.services.live_candle import latest_cached_price
 from app.services.risk_prefs import RiskPrefs
 from app.services.signal_engine import candles_to_frame, get_latest_analysis
+from app.services.signal_exit import best_close, cached_exit_profile
 from app.strategies import Action
 
 # Harga live dianggap segar selama ini; setelahnya dipakai penutupan candle M15 terakhir
@@ -150,6 +151,17 @@ async def current_price(
 # ---------- Kartu sinyal ----------
 
 
+class BestCloseOut(BaseModel):
+    hold: int = Field(description="CLOSE setelah sekian candle sejak masuk")
+    close_at: datetime = Field(description="Perkiraan waktu CLOSE dengan rata-rata untung terbesar")
+    avg_pips: float = Field(description="Rata-rata hasil bersih historis bila CLOSE di close_at")
+    win_rate: float
+    samples: int = Field(description="Jumlah transaksi historis strategi ini yang dinilai")
+    strategy_pips: float = Field(
+        description="Rata-rata hasil bila mengikuti aturan keluar strategi (TP/SL/CLOSE) apa adanya"
+    )
+
+
 class SignalView(BaseModel):
     id: int
     source: str = Field(description="rule = strategi teruji, ai = AI Groq (eksperimen)")
@@ -207,6 +219,13 @@ class SignalView(BaseModel):
     close_price: float | None
     close_reason: str | None
     result_pips: float | None
+
+    best_close: BestCloseOut | None = Field(
+        default=None, description="Perkiraan waktu CLOSE terbaik (sinyal aktif strategi)"
+    )
+    best_close_note: str | None = Field(
+        default=None, description="Penjelasan bila perkiraan CLOSE terbaik tidak tersedia"
+    )
 
 
 def entry_state(
@@ -341,7 +360,7 @@ async def load_signal_view(
     stop = None
     if trail_cfg.enabled and signal.status == "ACTIVE" and signal.action in ("BUY", "SELL"):
         stop = await _current_trailing_stop(session, signal, instrument, setting, trail_cfg)
-    return build_signal_view(
+    view = build_signal_view(
         signal,
         instrument,
         offset=setting.price_offset if setting else 0.0,
@@ -352,6 +371,32 @@ async def load_signal_view(
         trailing_stop=stop,
         take_profit_active=not trail_cfg.enabled or trail_cfg.take_profit,
     )
+    if signal.status == "ACTIVE" and view.source == "rule" and signal.action in ("BUY", "SELL"):
+        await attach_best_close(view, signal, redis)
+    return view
+
+
+async def attach_best_close(view: SignalView, signal: Signal, redis: Redis) -> None:
+    """Perkiraan CLOSE terbaik dari histori strategi ini (cache worker)."""
+    profile = await cached_exit_profile(redis, signal.symbol, signal.strategy)
+    plan = best_close(profile)
+    if profile is None:
+        view.best_close_note = "Perkiraan waktu CLOSE sedang dihitung dari histori strategi."
+    elif plan is None:
+        view.best_close_note = (
+            f"Dari {profile.samples} transaksi historis, tidak ada waktu tutup tetap yang "
+            "rata-ratanya untung — ikuti SL/TP dan sinyal CLOSE."
+        )
+    else:
+        tf = Timeframe(signal.timeframe)
+        view.best_close = BestCloseOut(
+            hold=plan.hold,
+            close_at=signal.candle_time + tf.delta * (1 + plan.hold),
+            avg_pips=plan.pips,
+            win_rate=plan.win_rate,
+            samples=plan.samples,
+            strategy_pips=profile.strategy_pips,
+        )
 
 
 async def _current_trailing_stop(

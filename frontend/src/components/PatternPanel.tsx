@@ -1,19 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { endpoints } from "@/lib/api";
+import { horizonText } from "@/lib/patternHint";
 import type { PatternOut, PatternsResponse, Timeframe } from "@/lib/types";
 
 /** Sama dengan MIN_EDGE di backend: di bawah ini pola dianggap seperti lempar koin. */
 const EDGE = 0.55;
-const TF_MINUTES: Record<Timeframe, number> = { M1: 1, M5: 5, M15: 15, H1: 60, H4: 240 };
-
-/** "4 candle" → durasi nyata sesuai timeframe, mis. M15 → 1 jam, H4 → 16 jam. */
-function horizonText(tf: Timeframe, candles: number): string {
-  const minutes = TF_MINUTES[tf] * candles;
-  return minutes < 60 ? `${minutes} menit` : `${minutes / 60} jam`;
-}
 
 /** Meter kemungkinan: berapa dari 100 kali harga naik vs turun setelah pola. */
 function UpDownMeter({ up, size = "md" }: { up: number; size?: "md" | "sm" }) {
@@ -165,35 +157,17 @@ const GUIDE: [string, string][] = [
  * Pola candlestick (Hammer, Morning Star, Engulfing, dst.) pada candle tertutup terakhir
  * di M1–H4. Kekuatan: +1 di area support/resistance, +1 searah tren. Peluang = seberapa
  * sering pola itu diikuti gerakan searah di histori instrumen ini → kemungkinan BUY / SELL.
- * Dimuat ulang setiap timeframe grafik (`activeTf`) berganti.
+ * Data dimuat di ChartMonitor (`usePatterns`) agar grafik memakai hasil yang sama.
  */
 export function PatternPanel({
   symbol,
-  reloadKey,
-  activeTf,
+  data,
+  error,
 }: {
   symbol: string;
-  reloadKey: number;
-  activeTf: Timeframe | null;
+  data: PatternsResponse | null;
+  error: string | null;
 }) {
-  const [data, setData] = useState<PatternsResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!activeTf) return; // tunggu grafik menentukan timeframe-nya
-    let active = true;
-    endpoints
-      .patterns(symbol, activeTf)
-      .then((res) => {
-        if (!active) return;
-        setData(res);
-        setError(null);
-      })
-      .catch((e: Error) => active && setError(e.message));
-    return () => {
-      active = false;
-    };
-  }, [symbol, reloadKey, activeTf]);
 
   const found = data?.timeframes.flatMap((tf) => tf.patterns.map((p) => ({ p, tf: tf.timeframe }))) ?? [];
   const quiet = data?.timeframes.filter((tf) => tf.up_to_date && !tf.patterns.length).map((tf) => tf.timeframe) ?? [];

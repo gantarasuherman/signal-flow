@@ -7,7 +7,7 @@ import asyncio
 import json
 import logging
 import signal
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -28,7 +28,9 @@ from app.repositories import signals as signals_repo
 from app.services.backtest_jobs import fail_stale_runs, process_next_backtest
 from app.services.candle_sync import refresh_if_stale, sync_candles
 from app.services.pattern_stats import get_pattern_stats
+from app.services.prediction_log import log_predictions
 from app.services.signal_engine import analyze_instrument, write_static_snapshot
+from app.services.signal_exit import refresh_signal_exits
 from app.services.watch import WATCH_CHANNEL, watch_all_enabled, watched_symbols
 from app.strategies import create_strategy
 
@@ -214,6 +216,9 @@ async def sync_and_analyze(instrument: Instrument, *, sync: bool = True) -> None
     try:
         async with SessionLocal() as session:
             snapshot = await analyze_instrument(session, get_redis(), instrument, datetime.now(UTC))
+            # Uji maju prediksi pola M15/H1/H4 (data sudah disinkronkan worker)
+            for tf in (Timeframe.M15, Timeframe.H1, Timeframe.H4):
+                await log_predictions(session, get_redis(), instrument, tf, datetime.now(UTC))
         logger.info("%s: %s — %s", symbol, snapshot["action"], " ".join(snapshot["reasons"][:2]))
     except Exception:
         logger.exception("%s: error saat analisis", symbol)
@@ -242,6 +247,12 @@ async def warm_pattern_stats() -> None:
                     logger.exception("%s %s: gagal menghitung peluang pola", symbol, tf)
 
 
+async def warm_signal_exits() -> None:
+    """Perkiraan waktu CLOSE terbaik per strategi (replay setahun, butuh puluhan detik)."""
+    async with SessionLocal() as session:
+        await refresh_signal_exits(session, get_redis())
+
+
 async def heartbeat() -> None:
     await get_redis().set(WORKER_HEARTBEAT_KEY, datetime.now(UTC).isoformat())
 
@@ -266,6 +277,15 @@ def build_scheduler() -> AsyncIOScheduler:
         hours=6,
         id="pattern_stats",
         next_run_time=datetime.now(UTC),  # juga langsung saat worker mulai
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        warm_signal_exits,
+        "interval",
+        hours=12,
+        id="signal_exits",
+        next_run_time=datetime.now(UTC) + timedelta(minutes=2),  # setelah bootstrap
         max_instances=1,
         coalesce=True,
     )
