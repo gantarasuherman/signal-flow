@@ -265,6 +265,12 @@ async def analyze_instrument(
         active=to_view(active_row) if active_row else None,
         timeframe=timeframe,
     )
+    if strategy.wants_evidence:
+        from app.services.ai_evidence import history_evidence  # hindari impor melingkar
+
+        ctx.evidence = await history_evidence(
+            session, redis, instrument, ind, timeframe, spread_pips
+        )
     blocked = await run_filters(m15, instrument, now, cfg.filters, calendar)
     await strategy.prepare(ctx)
     result = step(strategy, ctx, blocked, cfg.max_hold_candles, cfg.profit_close, cfg.trailing_stop)

@@ -61,3 +61,28 @@ def test_weak_adx_caps_strength(xauusd: Instrument) -> None:
     frames = {Timeframe.M15: flat, Timeframe.H1: downtrend(), Timeframe.H4: downtrend()}
     r = read_chart(frames, xauusd, Timeframe.M15)
     assert r.lean == "turun" and r.strength == "sedang"
+
+
+def test_lean_events_buy_close_and_flip(xauusd: Instrument) -> None:
+    from app.services.chart_read import lean_events
+
+    idx = pd.date_range(end=END, periods=5, freq="15min")
+    df = pd.DataFrame({"close": [100.0, 101.0, 103.0, 102.0, 99.0]}, index=idx)
+    # netral → NAIK (BUY 101) → tetap → TURUN (CLOSE 102 lalu SELL 102) → netral (CLOSE 99)
+    score = pd.Series([0.0, 2.5, 3.0, -2.0, 0.5], index=idx)
+    events = lean_events(df, score, xauusd, spread_pips=1.0)
+    assert [(e.action, e.price) for e in events] == [
+        ("BUY", 101.0),
+        ("CLOSE", 102.0),
+        ("SELL", 102.0),
+        ("CLOSE", 99.0),
+    ]
+    pip = xauusd.pip_size
+    assert events[1].result_pips == round(1.0 / pip - 1.0, 1)
+    assert events[3].result_pips == round(3.0 / pip - 1.0, 1)
+
+
+def test_last_event_matches_current_lean(xauusd: Instrument) -> None:
+    frames = {tf: downtrend() for tf in (Timeframe.M15, Timeframe.H1, Timeframe.H4)}
+    r = read_chart(frames, xauusd, Timeframe.M15)
+    assert r.events and r.events[-1].action == "SELL"

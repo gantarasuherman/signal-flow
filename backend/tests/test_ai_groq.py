@@ -277,3 +277,35 @@ async def test_passive_mode_never_calls_ai(ctx: StrategyContext) -> None:
     d = s.evaluate(with_pos)
     assert d.action is Action.WAIT and "Analisis AI" in d.reasons[0]
     assert s.should_close(with_pos, active) is None  # TP/SL tetap diurus mesin, bukan AI
+
+
+def test_prompt_includes_historical_evidence(ctx: StrategyContext) -> None:
+    params = AiGroqStrategy().params
+    assert "HISTORICAL EVIDENCE" not in build_prompt(ctx, params)
+    note = "Pattern Hammer (BUY bias) on last M15 candle: next candle moved its way 62% ..."
+    prompt = build_prompt(replace(ctx, evidence=[note]), params)
+    assert "HISTORICAL EVIDENCE" in prompt and f"- {note}" in prompt
+    assert AiGroqStrategy().wants_evidence
+    assert not AiGroqStrategy({"passive": True}).wants_evidence
+
+
+def test_pattern_notes_mark_reliability(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import ai_evidence
+    from app.services.pattern_stats import PatternStat
+    from app.strategies.patterns import Pattern
+
+    hammer, star = Pattern("Hammer", 1, ""), Pattern("Shooting Star", -1, "")
+    monkeypatch.setattr(ai_evidence, "detect_patterns", lambda _df: [hammer, star])
+    stats = {"Hammer": PatternStat(400, 260), "Shooting Star": PatternStat(400, 204)}
+    notes = ai_evidence.pattern_notes(pd.DataFrame(), stats, Timeframe.M15)
+    assert "Hammer (BUY bias)" in notes[0] and "65% of 400" in notes[0] and "RELIABLE" in notes[0]
+    assert "Shooting Star (SELL bias)" in notes[1] and "NOT reliable" in notes[1]
+
+
+async def test_ai_track_record_query_runs(db_session: Any) -> None:
+    from datetime import UTC, datetime
+
+    from app.services.ai_evidence import ai_track_record
+
+    record = await ai_track_record(db_session, "NOSUCH", datetime.now(UTC))
+    assert record is None

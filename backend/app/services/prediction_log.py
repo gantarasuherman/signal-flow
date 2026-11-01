@@ -9,7 +9,7 @@ Aturannya sama dengan grafik: pola berarah yang di histori instrumen & timeframe
 hasil = close candle ke-N - close candle pola, dikurangi spread."""
 
 import logging
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from redis.asyncio import Redis
@@ -162,10 +162,16 @@ async def log_predictions(
 
 
 async def prediction_summary(
-    session: AsyncSession, symbol: str | None = None, timeframe: Timeframe | None = None
+    session: AsyncSession,
+    symbol: str | None = None,
+    timeframe: Timeframe | None = None,
+    days: int | None = None,
 ) -> dict[str, Any]:
-    """Rekap uji maju: hanya prediksi tepat waktu yang sudah ada hasilnya."""
+    """Rekap uji maju: hanya prediksi tepat waktu yang sudah ada hasilnya. `days` membatasi ke
+    prediksi yang masuk dalam sekian hari terakhir."""
     where = [PatternPrediction.on_time.is_(True)]
+    if days:
+        where.append(PatternPrediction.entry_time >= datetime.now(UTC) - timedelta(days=days))
     if symbol:
         where.append(PatternPrediction.symbol == symbol)
     if timeframe:

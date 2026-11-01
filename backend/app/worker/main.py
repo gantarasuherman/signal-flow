@@ -25,6 +25,7 @@ from app.data.providers import close_provider, get_provider
 from app.data.stream import PriceStreamer
 from app.db.session import SessionLocal, engine
 from app.repositories import signals as signals_repo
+from app.services.ai_auto import ai_auto_enabled
 from app.services.backtest_jobs import fail_stale_runs, process_next_backtest
 from app.services.candle_sync import refresh_if_stale, sync_candles
 from app.services.pattern_stats import get_pattern_stats
@@ -167,27 +168,35 @@ def start_ai_cycle(symbols: set[str] | None = None) -> None:
 
 
 async def run_ai_cycle(symbols: set[str] | None = None) -> None:
-    """AI hanya dijalankan lewat tombol "Analisis AI" (API). Di sini worker cukup memantau
-    posisi AI yang masih aktif secara PASIF (tanpa memanggil Groq): TP/SL & batas waktu."""
+    """Tanpa mode otomatis, AI hanya dijalankan lewat tombol "Analisis AI" (API): worker cukup
+    memantau posisi AI yang aktif secara PASIF (tanpa memanggil Groq): TP/SL & batas waktu.
+
+    Mode AI otomatis (Pengaturan): setiap candle M15, posisi AI aktif ditanya HOLD/CLOSE dan
+    instrumen tanpa posisi ditanya BUY/SELL/WAIT — AI hanya dipanggil bila kode melihat calon
+    setup searah tren (hemat kuota). Hanya instrumen di `ai_instruments`."""
     async with _ai_lock:
-        params = {**get_analysis_config().strategies.get("ai_groq", {}), "passive": True}
+        cfg = get_analysis_config()
+        gap = get_settings().ai_call_gap_seconds
         async with SessionLocal() as session:
+            auto = await ai_auto_enabled(session)
             for instrument in get_instruments().values():
-                active = await signals_repo.get_active_for_symbol(
-                    session, instrument.symbol, source="ai"
+                symbol = instrument.symbol
+                active = await signals_repo.get_active_for_symbol(session, symbol, source="ai")
+                now = datetime.now(UTC)
+                ask = (
+                    auto
+                    and cfg.ai_enabled_for(symbol)
+                    and (symbols is None or symbol in symbols or active is not None)
+                    and is_market_open(instrument.asset_class, now)
                 )
-                if active is None:
+                if active is None and not ask:
                     continue
+                params = {**cfg.strategies.get("ai_groq", {}), "passive": not ask}
                 try:
                     # Posisi AI M1/M5: candle-nya tidak disinkron siklus M15, ambil dulu
-                    now = datetime.now(UTC)
+                    timeframe = Timeframe(active.timeframe) if active else Timeframe.M15
                     await refresh_if_stale(
-                        session,
-                        get_provider(),
-                        get_redis(),
-                        instrument,
-                        Timeframe(active.timeframe),
-                        now,
+                        session, get_provider(), get_redis(), instrument, timeframe, now
                     )
                     snapshot = await analyze_instrument(
                         session,
@@ -195,10 +204,14 @@ async def run_ai_cycle(symbols: set[str] | None = None) -> None:
                         instrument,
                         now,
                         strategy=create_strategy("ai_groq", params),
+                        timeframe=timeframe,
                     )
-                    logger.info("%s [AI pasif]: %s", instrument.symbol, snapshot["action"])
+                    mode = "otomatis" if ask else "pasif"
+                    logger.info("%s [AI %s]: %s", symbol, mode, snapshot["action"])
                 except Exception:
-                    logger.exception("%s: error saat memantau posisi AI", instrument.symbol)
+                    logger.exception("%s: error saat analisis AI", symbol)
+                if ask and gap:
+                    await asyncio.sleep(gap)  # batas token/menit Groq
 
 
 async def sync_and_analyze(instrument: Instrument, *, sync: bool = True) -> None:

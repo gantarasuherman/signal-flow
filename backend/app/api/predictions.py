@@ -51,9 +51,10 @@ async def get_predictions(
     session: SessionDep,
     symbol: Annotated[str | None, Query(examples=["XAUUSD"])] = None,
     timeframe: Timeframe | None = None,
+    days: Annotated[int | None, Query(ge=1, le=3650, description="Kosong = semua")] = None,
 ) -> PredictionSummary:
     """Hasil prediksi pola yang dicatat TEPAT WAKTU (sebelum hasilnya diketahui), bersih setelah
     spread. Prediksi yang terlambat dicatat (mis. grafik tidak sedang dibuka) tidak dihitung."""
     sym = resolve_instrument(symbol).symbol if symbol else None
-    data = await prediction_summary(session, sym, timeframe)
+    data = await prediction_summary(session, sym, timeframe, days)
     return PredictionSummary.model_validate(data)

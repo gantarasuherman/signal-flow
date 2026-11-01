@@ -14,6 +14,7 @@ from app.data.providers import (
     provider_configured,
 )
 from app.repositories import app_settings
+from app.services.ai_auto import AI_AUTO_SETTING, ai_auto_enabled
 from app.services.risk_prefs import RiskPrefs, get_risk_prefs, save_risk_prefs
 from app.services.watch import set_watch_all, watch_all_enabled
 
@@ -45,6 +46,24 @@ async def update_watch_all(body: WatchAll, session: SessionDep) -> WatchAll:
     """Nyala: strategi menganalisis keempat instrumen tiap 15 menit, bukan hanya yang dibuka
     (lebih banyak pemakaian kuota data Twelve Data)."""
     await set_watch_all(session, get_redis(), body.enabled, sorted(get_instruments()))
+    await session.commit()
+    return body
+
+
+class AiAuto(BaseModel):
+    enabled: bool
+
+
+@router.get("/ai-auto", response_model=AiAuto)
+async def read_ai_auto(session: SessionDep) -> AiAuto:
+    return AiAuto(enabled=await ai_auto_enabled(session))
+
+
+@router.put("/ai-auto", response_model=AiAuto)
+async def update_ai_auto(body: AiAuto, session: SessionDep) -> AiAuto:
+    """Nyala: worker meminta keputusan AI (BUY/SELL/WAIT, atau HOLD/CLOSE untuk posisi AI)
+    setiap candle M15 untuk instrumen yang dipantau, tanpa menekan tombol. Memakai kuota Groq."""
+    await app_settings.set_value(session, AI_AUTO_SETTING, body.enabled)
     await session.commit()
     return body
 

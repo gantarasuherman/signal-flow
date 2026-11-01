@@ -49,6 +49,11 @@ Rules:
   short scalp, H4 = multi-day swing). A candlestick pattern against the trade (e.g. Evening Star,
   Shooting Star, Three Black Crows for a BUY) or a Spinning Top is a reason to WAIT; a pattern
   in the trade direction (e.g. Hammer, Morning Star for a BUY) supports it.
+- HISTORICAL EVIDENCE (if given) is this instrument's real track record computed by code:
+  how often each detected candlestick pattern was right, how the code chart read performed,
+  and how YOUR past trades did. Weigh it heavily: a pattern marked NOT reliable is noise; a
+  RELIABLE pattern against the trade is a reason to WAIT; if your recent record is poor, demand
+  stronger confirmation. Prefer fewer, higher-quality trades — WAIT is always acceptable.
 - With an open position answer "HOLD", "CLOSE" (exit early because momentum clearly turned
   against the position) or the opposite direction (reverse). Do not re-enter the same side.
 - "sl_atr": stop-loss distance in multiples of the entry-timeframe ATR (1.0-3.0), e.g.
@@ -122,6 +127,10 @@ def build_prompt(ctx: StrategyContext, params: AiGroqParams, setup: Setup | None
         side = "BUY" if setup.direction == 1 else "SELL"
         lines.append(f"CANDIDATE SETUP (code): {side} — {setup.note}.")
 
+    if ctx.evidence:
+        lines.append("HISTORICAL EVIDENCE (code, this instrument):")
+        lines.extend(f"- {note}" for note in ctx.evidence)
+
     frames = {"H4": ctx.h4, "H1": ctx.h1, tf.value: ctx.m15}  # entry H1/H4: tanpa duplikat
     for label, df in frames.items():
         facts = timeframe_facts(df, d)
@@ -167,6 +176,10 @@ class AiGroqStrategy(Strategy):
         self._client = client
         self.calls = 0  # jumlah panggilan API (untuk evaluasi kuota)
         self.reset()
+
+    @property
+    def wants_evidence(self) -> bool:
+        return not self.params.passive
 
     def reset(self) -> None:
         self._answer: AiAnswer | None = None

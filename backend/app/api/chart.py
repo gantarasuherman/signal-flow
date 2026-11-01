@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.analysis.indicators import compute_indicators
 from app.api.deps import ProviderDep, SessionDep, resolve_instrument
@@ -15,6 +15,7 @@ from app.repositories import instrument_settings as settings_repo
 from app.services.candle_sync import refresh_if_stale
 from app.services.chart_read import read_chart
 from app.services.signal_engine import analysis_timeframes, candles_to_frame
+from app.services.views import spread_pips_of
 
 router = APIRouter(tags=["analysis"])
 
@@ -24,6 +25,13 @@ FRAME_BARS = 300  # cukup untuk EMA200
 class ChartPoint(BaseModel):
     tone: Literal["up", "down", "neutral", "warn"]
     text: str
+
+
+class ChartEvent(BaseModel):
+    time: datetime = Field(description="Waktu buka candle tempat arah analisis berubah")
+    action: Literal["BUY", "SELL", "CLOSE"]
+    price: float = Field(description="Harga tutup candle itu (disesuaikan ke broker)")
+    result_pips: float | None = Field(description="CLOSE: hasil bersih setelah spread")
 
 
 class ChartReadOut(BaseModel):
@@ -38,6 +46,7 @@ class ChartReadOut(BaseModel):
     price: float | None
     support: float | None
     resistance: float | None
+    events: list[ChartEvent]
 
 
 @router.get("/analysis/chart", response_model=ChartReadOut)
@@ -60,7 +69,13 @@ async def chart_analysis(
         if rows:
             frames[tf] = compute_indicators(candles_to_frame(rows))
     setting = (await settings_repo.get_all(session)).get(instrument.symbol)
-    result = read_chart(frames, instrument, timeframe, setting.price_offset if setting else 0.0)
+    result = read_chart(
+        frames,
+        instrument,
+        timeframe,
+        setting.price_offset if setting else 0.0,
+        spread_pips_of(instrument, setting),
+    )
     return ChartReadOut(
         symbol=instrument.symbol,
         timeframe=result.timeframe,
@@ -73,4 +88,13 @@ async def chart_analysis(
         price=result.price,
         support=result.support,
         resistance=result.resistance,
+        events=[
+            ChartEvent(
+                time=e.time.to_pydatetime(),
+                action=e.action,
+                price=e.price,
+                result_pips=e.result_pips,
+            )
+            for e in result.events
+        ],
     )

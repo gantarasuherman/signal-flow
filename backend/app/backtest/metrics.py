@@ -48,6 +48,11 @@ class Metrics:
     return_pct: float
     sharpe: float | None
     by_status: dict[str, int]
+    # Total keuntungan (siklus untung) dan kerugian (siklus rugi, negatif) secara terpisah
+    win_pips: float = 0.0
+    loss_pips: float = 0.0
+    win_r: float = 0.0
+    loss_r: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -133,6 +138,10 @@ def compute_metrics(
         return_pct=round((equity - 1) * 100, 2),
         sharpe=sharpe,
         by_status=dict(by_status),
+        win_pips=round(sum(t.result_pips for t in wins), 1),
+        loss_pips=round(sum(t.result_pips for t in losses), 1),
+        win_r=round(gross_win, 2),
+        loss_r=round(-gross_loss, 2),
     )
 
 

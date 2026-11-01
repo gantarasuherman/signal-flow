@@ -36,6 +36,7 @@ def test_metrics_basic_numbers() -> None:
     assert m.total_r == 2.0
     assert m.expectancy_r == 0.5
     assert m.profit_factor == 2.0
+    assert (m.win_pips, m.loss_pips, m.win_r, m.loss_r) == (40.0, -20.0, 4.0, -2.0)
     assert m.avg_rr_realized == 2.0
     assert m.avg_rr_planned == 2.0
     assert m.net_pips == 20.0

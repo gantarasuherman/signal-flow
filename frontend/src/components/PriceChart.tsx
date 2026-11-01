@@ -61,6 +61,8 @@ type Toggles = {
   rsi: boolean;
   macd: boolean;
   pola: boolean;
+  /** titik BUY/SELL/CLOSE dari ANALISIS CHART */
+  analisis: boolean;
 };
 const DEFAULT_TOGGLES: Toggles = {
   ema: true,
@@ -68,6 +70,7 @@ const DEFAULT_TOGGLES: Toggles = {
   rsi: true,
   macd: false,
   pola: true,
+  analisis: true,
 };
 const STORAGE_KEY = "signalflow:chart";
 
@@ -262,6 +265,21 @@ function ChartSummary({
           <span className="text-muted">{open ? "▴" : "▾"}</span>
         </span>
       )}
+      {read && (() => {
+        const closes = read.events.filter((e) => e.action === "CLOSE").map((e) => e.result_pips ?? 0);
+        if (!closes.length) return null;
+        const wins = closes.filter((p) => p > 0).length;
+        const net = closes.reduce((a, b) => a + b, 0);
+        return (
+          <span className="tabular block whitespace-nowrap">
+            📊 Titik analisis: {closes.length} siklus · benar {wins} ({Math.round((wins / closes.length) * 100)}%) ·{" "}
+            <b className={net >= 0 ? "text-buy" : "text-sell"}>
+              {net >= 0 ? "+" : "−"}
+              {Math.abs(Math.round(net))} pip
+            </b>
+          </span>
+        );
+      })()}
       {window && read && window.timeframe === read.timeframe && (
         <span className="tabular block whitespace-nowrap font-semibold">⏱ {window.label}</span>
       )}
@@ -321,6 +339,12 @@ function ChartSummary({
             </span>
           )}
           {read && <span className="block">{read.watch}</span>}
+          {read && read.events.length > 0 && (
+            <span className="block text-muted">
+              📊 Titik analisis = BUY saat analisis berubah jadi NAIK, SELL saat jadi TURUN, CLOSE saat arahnya hilang
+              atau berbalik. Harga = tutup candle itu; ✓/✗ = hasil setelah spread. Bukan sinyal strategi teruji.
+            </span>
+          )}
           {hint && (
             <span className="block text-muted">
               Pola: {hint.pattern.meaning}.{" "}
@@ -668,6 +692,35 @@ export default function PriceChart({
           }
         }
       }
+      // ANALISIS CHART: BUY saat arah jadi NAIK, SELL saat jadi TURUN, CLOSE saat arah hilang
+      if (toggles.analisis && chartRead && chartRead.timeframe === prefs.tf) {
+        const wide = el.clientWidth >= MARKER_TEXT_MIN_WIDTH;
+        let side: "BUY" | "SELL" | null = null;
+        for (const e of chartRead.events) {
+          const t = Math.floor(new Date(e.time).getTime() / 1000);
+          if (e.action !== "CLOSE") side = e.action;
+          if (t < first || t > last) continue;
+          if (e.action === "CLOSE") {
+            const p = e.result_pips ?? 0;
+            marks.push({
+              time: ts(t),
+              position: side === "BUY" ? "aboveBar" : "belowBar",
+              shape: "square",
+              color: p > 0 ? C.up : C.down,
+              text: `${wide ? "Analisis " : ""}CLOSE ${p > 0 ? "✓" : "✗"}${pipsText(p).trim()}`,
+            });
+          } else {
+            const buy = e.action === "BUY";
+            marks.push({
+              time: ts(t),
+              position: buy ? "belowBar" : "aboveBar",
+              shape: buy ? "arrowUp" : "arrowDown",
+              color: buy ? C.up : C.down,
+              text: `${wide ? "Analisis " : ""}${e.action}${wide ? ` ${e.price.toFixed(digits)}` : ""}`,
+            });
+          }
+        }
+      }
       // Pola paling berpotensi: penanda tegas berisi nama + peluang di candle tempat pola muncul
       const hint = patternHint;
       if (toggles.pola && hint && hint.timeframe === prefs.tf && hint.candleTime != null) {
@@ -811,7 +864,7 @@ export default function PriceChart({
           ))}
         </div>
         <div aria-label="Indikator" className="inline-flex rounded-xl bg-panel p-0.5">
-          {(["ema", "bb", "rsi", "macd", "pola"] as const).map((k) => (
+          {(["ema", "bb", "rsi", "macd", "pola", "analisis"] as const).map((k) => (
             <button
               key={k}
               aria-pressed={prefs.toggles[k]}

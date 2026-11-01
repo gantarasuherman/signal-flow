@@ -349,6 +349,64 @@ function DataSource() {
   );
 }
 
+function AiAutoMode() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    endpoints
+      .aiAuto()
+      .then((r) => setEnabled(r.enabled))
+      .catch((e: Error) => setError(e.message));
+  }, []);
+
+  const toggle = async () => {
+    if (enabled == null) return;
+    setSaving(true);
+    setError(null);
+    try {
+      setEnabled((await endpoints.setAiAuto(!enabled)).enabled);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Section title="AI otomatis">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-sm font-bold">Keputusan AI otomatis tiap candle M15</div>
+          <div className="text-xs text-muted">
+            AI memutuskan BUY / SELL / WAIT, lalu HOLD / CLOSE untuk posisinya — tanpa menekan tombol.
+          </div>
+        </div>
+        <button
+          role="switch"
+          aria-checked={!!enabled}
+          disabled={enabled == null || saving}
+          onClick={toggle}
+          className={`relative h-7 w-12 shrink-0 rounded-full transition disabled:opacity-60 ${enabled ? "bg-buy" : "bg-line"}`}
+        >
+          <span
+            className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${enabled ? "left-[22px]" : "left-0.5"}`}
+          />
+        </button>
+      </div>
+      {error && <p className="text-xs text-err">{error}</p>}
+      <p className="text-xs text-muted">
+        Sebelum memutuskan, AI menerima rekam jejak historis: seberapa sering pola candle yang muncul benar di
+        instrumen ini, hasil analisis chart, dan hasil trade AI 30 hari terakhir. AI hanya dipanggil saat ada calon
+        setup searah tren (hemat kuota Groq) dan hanya untuk instrumen yang diizinkan uji historis (XAUUSD tidak,
+        karena AI terbukti memperburuk hasil). Instrumen yang tidak sedang dibuka ikut dianalisis bila "pantau semua"
+        menyala. Ketepatannya terlihat di Riwayat → AI Groq; tidak ada jaminan win rate tertentu, gunakan akun demo.
+      </p>
+    </Section>
+  );
+}
+
 function Appearance() {
   const { choice, setChoice } = useTheme();
   return (
@@ -379,6 +437,7 @@ export default function SettingsPage() {
       <main className="mx-auto max-w-3xl space-y-4 px-4 py-4">
         <Appearance />
         <DataSource />
+        <AiAutoMode />
         <RiskForm />
         <Calibration />
         <InstallGuide />

@@ -78,6 +78,7 @@ async def test_record_then_resolve_forward_prediction(db_session, xauusd: Instru
     )
     summary = await prediction_summary(db_session, xauusd.symbol, tf)
     assert summary["done"] >= 1
+    assert (await prediction_summary(db_session, xauusd.symbol, tf, days=1))["done"] >= 1
 
 
 def test_best_exit_picks_shortest_near_best_hold(xauusd: Instrument) -> None:

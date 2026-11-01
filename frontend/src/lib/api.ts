@@ -75,8 +75,11 @@ export const endpoints = {
     api<CandlesResponse>(
       `/candles?symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}&limit=${limit}&indicators=true`,
     ),
-  signals: (params: { symbol?: string; source?: Source; limit?: number; beforeId?: number } = {}) => {
+  signals: (
+    params: { symbol?: string; source?: Source; limit?: number; beforeId?: number; actions?: string[] } = {},
+  ) => {
     const q = new URLSearchParams({ limit: String(params.limit ?? 30) });
+    for (const a of params.actions ?? []) q.append("action", a);
     if (params.symbol) q.set("symbol", params.symbol);
     if (params.source) q.set("source", params.source);
     if (params.beforeId) q.set("before_id", String(params.beforeId));
@@ -91,6 +94,8 @@ export const endpoints = {
     api<InstrumentOut>(`/instruments/${symbol}/calibration`, { method: "DELETE" }),
   risk: () => api<RiskPrefs>("/settings/risk"),
   saveRisk: (prefs: RiskPrefs) => api<RiskPrefs>("/settings/risk", json("PUT", prefs)),
+  aiAuto: () => api<{ enabled: boolean }>("/settings/ai-auto"),
+  setAiAuto: (enabled: boolean) => api<{ enabled: boolean }>("/settings/ai-auto", json("PUT", { enabled })),
   watchAll: () => api<{ enabled: boolean }>("/settings/watch-all"),
   setWatchAll: (enabled: boolean) => api<{ enabled: boolean }>("/settings/watch-all", json("PUT", { enabled })),
   health: () => api<Health>("/health"),
@@ -113,10 +118,11 @@ export const endpoints = {
     api<{ warning: string | null }>(`/analysis/ai/warning?symbol=${encodeURIComponent(symbol)}`),
   chartAnalysis: (symbol: string, timeframe: Timeframe) =>
     api<ChartRead>(`/analysis/chart?symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}`),
-  predictions: (symbol?: string, timeframe?: Timeframe) => {
+  predictions: (symbol?: string, timeframe?: Timeframe, days?: number) => {
     const q = new URLSearchParams();
     if (symbol) q.set("symbol", symbol);
     if (timeframe) q.set("timeframe", timeframe);
+    if (days) q.set("days", String(days));
     return api<PredictionSummary>(`/predictions?${q}`);
   },
   formingPattern: (symbol: string, timeframe: Timeframe) =>

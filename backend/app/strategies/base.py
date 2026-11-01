@@ -56,6 +56,8 @@ class StrategyContext:
     spread_price: float
     active: ActiveSignalView | None = None
     timeframe: Timeframe = Timeframe.M15
+    # Rekam jejak historis (pola, analisis chart, hasil AI) untuk strategi yang memintanya
+    evidence: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -90,6 +92,11 @@ class Strategy(ABC):
     source: ClassVar[str] = "rule"
     # Rangkai alasan dengan LLM narrator? (sinyal AI sudah membawa alasannya sendiri)
     narrate: ClassVar[bool] = True
+
+    @property
+    def wants_evidence(self) -> bool:
+        """Isi `StrategyContext.evidence` (rekam jejak historis) sebelum `prepare`?"""
+        return False
 
     def __init__(self, params: BaseModel | dict[str, Any] | None = None) -> None:
         if isinstance(params, BaseModel):

@@ -216,6 +216,11 @@ export interface Metrics {
   return_pct: number;
   sharpe: number | null;
   by_status: Record<string, number>;
+  /** total pip / R dari siklus untung (positif) dan rugi (negatif); hasil lama bisa tidak punya */
+  win_pips?: number;
+  loss_pips?: number;
+  win_r?: number;
+  loss_r?: number;
 }
 
 export type PeriodMetrics = Metrics & { start: string; end: string };
@@ -411,6 +416,17 @@ export interface ChartRead {
   price: number | null;
   support: number | null;
   resistance: number | null;
+  /** Setiap arah analisis berubah: BUY (jadi NAIK), SELL (jadi TURUN), CLOSE (arah hilang) */
+  events: ChartEvent[];
+}
+
+export interface ChartEvent {
+  /** waktu buka candle tempat arah berubah */
+  time: string;
+  action: "BUY" | "SELL" | "CLOSE";
+  price: number;
+  /** CLOSE: hasil bersih setelah spread */
+  result_pips: number | null;
 }
 
 /** Uji maju prediksi pola: hanya prediksi yang dicatat sebelum hasilnya diketahui. */

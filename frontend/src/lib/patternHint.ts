@@ -1,7 +1,7 @@
 import { timeWIB } from "./format";
 import { TF_SECONDS, type PatternOut, type PatternsResponse, type Timeframe } from "./types";
 
-const TF_MINUTES: Record<Timeframe, number> = { M1: 1, M5: 5, M15: 15, H1: 60, H4: 240 };
+export const TF_MINUTES: Record<Timeframe, number> = { M1: 1, M5: 5, M15: 15, H1: 60, H4: 240 };
 
 /** "4 candle" → durasi nyata sesuai timeframe, mis. M15 → 1 jam, H4 → 16 jam. */
 export function horizonText(tf: Timeframe, candles: number): string {
